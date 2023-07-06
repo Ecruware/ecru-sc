@@ -1,0 +1,61 @@
+name: Generate ABIs and Bindings
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install Foundry
+        uses: onbjerg/foundry-toolchain@v1.0.6
+        with:
+          version: nightly
+
+      - name: Clone repo with submodules
+        uses: actions/checkout@v2
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: | 
+          yarn
+          make
+
+      - name: Generate ABIs
+        run: forge build
+
+      - name: Generate TS bindings
+        run: yarn generate-ts-bindings
+
+      - name: Filter ABIs
+        run: |
+          cd out
+          rm -rf *.t.* *test* *Test* *console* *Vm* *Std* *gas* *unit* *integration* *invariant* *PermitMaker* *Handler* *MockOracle* *Address* *Context* *Counters* *Upgradeable* *ECDSA* *EIP* *draft* *EnumerableSet* *Imports* *ReentrancyGuard* *Strings* *StorageSlot*
+          cd ..
+
+      - name: Push ABIs
+        uses: cpina/github-action-push-to-another-repository@main
+        env:
+          SSH_DEPLOY_KEY: ${{ secrets.SSH_DEPLOY_KEY }}
+        with:
+          source-directory: out
+          destination-github-username: ${{ secrets.DESTINATION_ORG_NAME }}
+          destination-repository-name: ${{ secrets.DESTINATION_REPO_NAME }}
+          target-branch: main
+          target-directory: abis
+
+      - name: Push TS bindings
+        uses: cpina/github-action-push-to-another-repository@main
+        env:
+          SSH_DEPLOY_KEY: ${{ secrets.SSH_DEPLOY_KEY }}
+        with:
+          source-directory: bindings
+          destination-github-username: ${{ secrets.DESTINATION_ORG_NAME }}
+          destination-repository-name: ${{ secrets.DESTINATION_REPO_NAME }}
+          target-branch: main
+          target-directory: bindings

@@ -1,0 +1,27 @@
+{
+  "name": "ecru-sc",
+  "author": "Ecruware GmbH",
+  "license": "MIT",
+  "version": "1.0.0",
+  "description": "Ecruware - Ecru Smart Contracts",
+  "files": [
+    "*.sol"
+  ],
+  "devDependencies": {
+    "@nomicfoundation/hardhat-foundry": "^1.0.1",
+    "@nomiclabs/hardhat-ethers": "^2.2.3",
+    "@openzeppelin/hardhat-upgrades": "^1.22.1",
+    "@tenderly/hardhat-tenderly": "^1.7.1",
+    "dotenv": "^16.0.3",
+    "eth-sig-util": "^3.0.1",
+    "ethereumjs-util": "^7.1.5",
+    "ethers": "^5.0.0",
+    "hardhat": "^2.14.0"
+  },
+  "scripts": {
+    "clean": "rm -rf cache cache_hardhat artifacts .openzeppelin deployments bindings",
+    "deploy-tenderly": "hardhat run ./scripts/deploy.js --network tenderly",
+    "generate-ts-bindings": "node ./scripts/generate-ts-bindings.js",
+    "generate-permit-sigs": "node ./scripts/generate-permit-sigs.js"
+  }
+}
