@@ -273,13 +273,19 @@ contract BorrowHandler is BaseHandler {
     }
 
     function getRateAccumulator() view public returns (uint64) {
-        bytes32 currentValueKey = keccak256("rateAccumulator");
-        return uint64(uint256(getGhostValue(currentValueKey)));
+        return uint64(uint256(
+            getGhostValue(
+                keccak256(abi.encode(RATE_ACCUMULATOR))
+            )
+        ));
     }
 
     function getSnapshotRateAccumulator(address position) view public returns (uint64) {
-        bytes32 currentValueKey = keccak256(abi.encodePacked(position, "snapshotRateAccumulator"));
-        return uint64(uint256(getGhostValue(currentValueKey)));
+        return uint64(uint256(
+            getGhostValue(
+                getValueKey(position, SNAPSHOT_RATE_ACCUMULATOR)
+            )
+        ));
     }
 
     function getPreviousRateAccumulator() view public returns (uint64) {
@@ -300,7 +306,7 @@ contract BorrowHandler is BaseHandler {
 
     function _trackSnapshotRateAccumulator(address position) private {
         InterestRateModel.PositionIRS memory positionIRS = vault.getPositionIRS(position);
-        trackValue(keccak256(abi.encode(SNAPSHOT_RATE_ACCUMULATOR, position)), bytes32(uint256(positionIRS.snapshotRateAccumulator)));
+        trackValue(getValueKey(position, SNAPSHOT_RATE_ACCUMULATOR), bytes32(uint256(positionIRS.snapshotRateAccumulator)));
     }
 
     // Generate the tick price for a limit order based on the seed

@@ -12,18 +12,18 @@ import {CDPVault_TypeAWrapper} from "./CDPVault_TypeAWrapper.sol";
 
 /// @title LiquidateInvariantTest
 contract LiquidateInvariantTest is InvariantTestBase {
-    CDPVault_TypeAWrapper internal cdpVaultR;
+    CDPVault_TypeAWrapper internal vault;
     LiquidateHandler internal liquidateHandler;
 
     uint64 public liquidationRatio = 1.25 ether;
-    uint64 public targetHealthFactor = 1.05 ether;
+    uint64 public targetHealthFactor = 1.10 ether;
 
     /// ======== Setup ======== ///
 
     function setUp() public virtual override {
         super.setUp();
 
-        cdpVaultR = createCDPVaultWrapper({
+        vault = createCDPVaultWrapper({
             token_: token, 
             debtCeiling: initialGlobalDebtCeiling, 
             debtFloor: 100 ether, 
@@ -36,18 +36,21 @@ contract LiquidateInvariantTest is InvariantTestBase {
             protocolFee: 0.01 ether
         });
 
-        liquidateHandler = new LiquidateHandler(cdpVaultR, this, new GhostVariableStorage(), liquidationRatio, targetHealthFactor);
+        CDPVault_TypeA.GlobalIRS memory globalIRS = vault.getGlobalIRS();
+        assertEq(globalIRS.baseRate, int64(BASE_RATE_1_005));
+
+        liquidateHandler = new LiquidateHandler(vault, this, new GhostVariableStorage(), liquidationRatio, targetHealthFactor);
 
         _setupVaults();
 
 
         // prepare price ticks
-        cdpVaultR.grantRole(TICK_MANAGER_ROLE, address(liquidateHandler));
+        vault.grantRole(TICK_MANAGER_ROLE, address(liquidateHandler));
 
-        excludeSender(address(cdpVaultR));
+        excludeSender(address(vault));
         excludeSender(address(liquidateHandler));
 
-        vm.label({account: address(cdpVaultR), newLabel: "CDPVault_TypeA"});
+        vm.label({account: address(vault), newLabel: "CDPVault_TypeA"});
         vm.label({
             account: address(liquidateHandler),
             newLabel: "LiquidateHandler"
@@ -74,9 +77,9 @@ contract LiquidateInvariantTest is InvariantTestBase {
 
         // prepare collateral
         vm.startPrank(address(liquidateHandler));
-        token.approve(address(cdpVaultR), liquidateHandler.collateralReserve());
-        cdpVaultR.deposit(address(liquidateHandler), liquidateHandler.collateralReserve());
-        cdm.modifyPermission(address(cdpVaultR),true);        
+        token.approve(address(vault), liquidateHandler.collateralReserve());
+        vault.deposit(address(liquidateHandler), liquidateHandler.collateralReserve());
+        cdm.modifyPermission(address(vault),true);        
         vm.stopPrank();
 
         CDPVault_TypeA creditVault = createCDPVaultWrapper({
@@ -114,4 +117,18 @@ contract LiquidateInvariantTest is InvariantTestBase {
         );
         vm.stopPrank();
     }
+
+    function invariant_Liquidation_A() external useCurrentTimestamp printReport(liquidateHandler) { assert_invariant_Liquidation_A(liquidateHandler); }
+
+    function invariant_Liquidation_B() external useCurrentTimestamp printReport(liquidateHandler) { assert_invariant_Liquidation_B(vault, liquidateHandler); }
+
+    function invariant_Liquidation_C() external useCurrentTimestamp printReport(liquidateHandler) { assert_invariant_Liquidation_C(liquidateHandler); }
+
+    function invariant_Liquidation_D() external useCurrentTimestamp printReport(liquidateHandler) { assert_invariant_Liquidation_D(vault, liquidateHandler); }
+
+    function invariant_Liquidation_E() external useCurrentTimestamp printReport(liquidateHandler) { assert_invariant_Liquidation_E(liquidateHandler); }
+
+    function invariant_Liquidation_F() external useCurrentTimestamp printReport(liquidateHandler) { assert_invariant_Liquidation_F(vault, liquidateHandler); }
+    
+    function invariant_Liquidation_G() external useCurrentTimestamp printReport(liquidateHandler) { assert_invariant_Liquidation_G(vault, liquidateHandler); }
  }

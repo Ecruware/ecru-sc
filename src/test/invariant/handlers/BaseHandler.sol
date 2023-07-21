@@ -15,11 +15,15 @@ string constant VAULTS_CATEGORY = "VAULTS_CATEGORY";
 string constant CONTRACTS_CATEGORY = "CONTRACTS_CATEGORY";
 string constant LIMIT_ORDERS_CATEGORY = "LIMIT_ORDERS_CATEGORY";
 
-bytes32 constant TRACK_FUNCTION_START_KEY = keccak256("START");
-bytes32 constant TRACK_FUNCTION_END_KEY = keccak256("END");
+string constant TRACK_FUNCTION_START_KEY = "START";
+string constant TRACK_FUNCTION_END_KEY = "END";
 
-bytes32 constant RATE_ACCUMULATOR =  keccak256("rateAccumulator");
-bytes32 constant SNAPSHOT_RATE_ACCUMULATOR = keccak256("snapshotRateAccumulator");
+string constant RATE_ACCUMULATOR =  "rateAccumulator";
+string constant SNAPSHOT_RATE_ACCUMULATOR = "snapshotRateAccumulator";
+
+function getValueKey(address user, string memory key) pure returns (bytes32) {
+    return keccak256(abi.encode(user, key));
+}
 
 /// @title GhostVariableStorage
 /// @notice Ghost variable storage contract that tracks actors by category.
@@ -212,12 +216,20 @@ abstract contract BaseHandler is  CommonBase, StdCheats, StdUtils {
         setGhostValue(currentValueKey, value);
     }
 
+    function trackValue(string memory key, bytes32 value) internal {
+        trackValue(keccak256(abi.encode(key)), value);
+    }
+
     // Retrieve the current and the previous value of a tracked property
     function getTrackedValue(bytes32 key) public view returns (bytes32 prevValue, bytes32 currentValue){
         bytes32 prevValueKey = keccak256(abi.encode(key, "PREV"));
         bytes32 currentValueKey = keccak256(abi.encode(key));
         prevValue = getGhostValue(prevValueKey);
         currentValue = getGhostValue(currentValueKey);
+    }
+
+    function getTrackedValue(string memory key) public view returns (bytes32 prevValue, bytes32 currentValue){
+        return getTrackedValue(keccak256(abi.encode(key)));
     }
 
     // Track actors by category

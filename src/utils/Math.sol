@@ -101,6 +101,22 @@ function wmul(uint256 x, int256 y) pure returns (int256 z) {
     }
 }
 
+/// @dev Equivalent to `(x * y) / WAD` rounded up.
+/// @dev Taken from https://github.com/Vectorized/solady/blob/969a78905274b32cdb7907398c443f7ea212e4f4/src/utils/FixedPointMathLib.sol#L69C22-L69C22
+function wmulUp(uint256 x, uint256 y) pure returns (uint256 z) {
+    /// @solidity memory-safe-assembly
+    assembly {
+        // Equivalent to `require(y == 0 || x <= type(uint256).max / y)`.
+        if mul(y, gt(x, div(not(0), y))) {
+            // Store the function selector of `Math__mul_overflow()`.
+            mstore(0x00, 0xc4c5d7f5)
+            // Revert with (offset, size).
+            revert(0x1c, 0x04)
+        }
+        z := add(iszero(iszero(mod(mul(x, y), WAD))), div(mul(x, y), WAD))
+    }
+}
+
 /// @dev Equivalent to `(x * WAD) / y` rounded down.
 /// @dev Taken from https://github.com/Vectorized/solady/blob/6d706e05ef43cbed234c648f83c55f3a4bb0a520/src/utils/FixedPointMathLib.sol#L84
 function wdiv(uint256 x, uint256 y) pure returns (uint256 z) {
@@ -115,6 +131,22 @@ function wdiv(uint256 x, uint256 y) pure returns (uint256 z) {
             revert(0x1c, 0x04)
         }
         z := div(mul(x, WAD), y)
+    }
+}
+
+/// @dev Equivalent to `(x * WAD) / y` rounded up.
+/// @dev Taken from https://github.com/Vectorized/solady/blob/969a78905274b32cdb7907398c443f7ea212e4f4/src/utils/FixedPointMathLib.sol#L99
+function wdivUp(uint256 x, uint256 y) pure returns (uint256 z) {
+    /// @solidity memory-safe-assembly
+    assembly {
+        // Equivalent to `require(y != 0 && (WAD == 0 || x <= type(uint256).max / WAD))`.
+        if iszero(mul(y, iszero(mul(WAD, gt(x, div(not(0), WAD)))))) {
+            // Store the function selector of `DivWadFailed()`.
+            mstore(0x00, 0xbcbede65)
+            // Revert with (offset, size).
+            revert(0x1c, 0x04)
+        }
+        z := add(iszero(iszero(mod(mul(x, WAD), y))), div(mul(x, WAD), y))
     }
 }
 
