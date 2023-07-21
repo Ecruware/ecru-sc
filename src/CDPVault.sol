@@ -11,7 +11,7 @@ import {ICDPVaultBase} from "./interfaces/ICDPVault.sol";
 import {IOracle} from "./interfaces/IOracle.sol";
 import {ICDPVault_TypeA_Factory} from "./interfaces/ICDPVault_TypeA_Factory.sol";
 
-import {WAD, toInt256, toUint64, max, min, add, sub, wmul, wdiv} from "./utils/Math.sol";
+import {WAD, toInt256, toUint64, max, min, add, sub, wmul, wdiv, wmulUp} from "./utils/Math.sol";
 import {DoubleLinkedList} from "./utils/DoubleLinkedList.sol";
 import {Permission} from "./utils/Permission.sol";
 import {Pause} from "./utils/Pause.sol";
@@ -1188,6 +1188,7 @@ abstract contract CDPVault is AccessControl, Pause, Permission, InterestRateMode
         uint256 settlementRate;
         uint256 settlementPenalty;
         uint256 maxCreditToExchange;
+        uint256 accruedBadDebt;
     }
 
     /// @notice Returns the position's interest rate state with the updated accrued rebate amount
@@ -1202,7 +1203,7 @@ abstract contract CDPVault is AccessControl, Pause, Permission, InterestRateMode
     /// @notice Executes an exchange of credit and collateral by settling position debt
     function _settleDebtAndReleaseCollateral(
         ExchangeCache memory cache, Position memory position, PositionIRS memory positionIRS, address owner
-    ) internal returns (ExchangeCache memory, Position memory) {
+    ) internal returns (ExchangeCache memory) {
         // limit the amount of credit to exchange by position debt to be settled
         uint256 creditToExchange;
         uint256 collateralToExchange;
@@ -1220,8 +1221,9 @@ abstract contract CDPVault is AccessControl, Pause, Permission, InterestRateMode
                 // then limit the amount of debt that can be settled such that at least the debt floor amount is left
                 (debt > maxDebtToSettle && debt - maxDebtToSettle < cache.debtFloor)
                     ? wdiv(debt - cache.debtFloor, cache.settlementPenalty) : wdiv(debt, cache.settlementPenalty),
-                wmul(position.collateral, cache.settlementRate)
+                wmulUp(position.collateral, cache.settlementRate)
         );
+
         // min(credit left to exchange, max credit to exchange)
         creditToExchange = min(cache.maxCreditToExchange, maxDebtToSettle);
 
@@ -1230,8 +1232,18 @@ abstract contract CDPVault is AccessControl, Pause, Permission, InterestRateMode
         (claimedRebate, positionIRS.accruedRebate) = _calculateRebateClaim(deltaDebt, debt, positionIRS.accruedRebate);
         deltaNormalDebt = calculateNormalDebt(deltaDebt, positionIRS.snapshotRateAccumulator, claimedRebate);
 
-        // calculate the amount of collateral to exchange
+        // calculate and bound the amount of collateral to exchange
         collateralToExchange = wdiv(creditToExchange, cache.settlementRate);
+        if (collateralToExchange > position.collateral) collateralToExchange = position.collateral;
+
+        // account for accrued bad debt (if any)        
+        if (
+            collateralToExchange == position.collateral && 
+            position.normalDebt > deltaNormalDebt
+        ){
+            cache.accruedBadDebt += debt - deltaDebt;
+            deltaNormalDebt = position.normalDebt;
+        }
         }
 
         // reorder stack
@@ -1251,7 +1263,7 @@ abstract contract CDPVault is AccessControl, Pause, Permission, InterestRateMode
         );
 
         // repay the position's debt balance and release the bought collateral amount
-        position = _modifyPosition(
+        _modifyPosition(
             owner,
             position,
             positionIRS,
@@ -1266,7 +1278,7 @@ abstract contract CDPVault is AccessControl, Pause, Permission, InterestRateMode
         cache.creditExchanged += creditToExchange;
         cache.accruedInterest += accruedInterest;
 
-        return (cache, position);
+        return cache;
     }
 
     /// @notice Exchange credit for collateral
@@ -1274,10 +1286,10 @@ abstract contract CDPVault is AccessControl, Pause, Permission, InterestRateMode
     /// @param creditToExchange Amount of credit to exchange for collateral [wad]
     /// @return creditExchanged Amount of credit exchanged [wad]
     /// @return collateralExchanged Amount of collateral exchanged [wad]
-    function exchange(
+    function _exchange(
         uint256 upperLimitPriceTick,
         uint256 creditToExchange
-    ) external returns (uint256 creditExchanged, uint256 collateralExchanged) {
+    ) internal returns (uint256 creditExchanged, uint256 collateralExchanged) {
         GlobalIRS memory globalIRS = getGlobalIRS();
         VaultConfig memory vaultConfig_ = vaultConfig;
         uint256 spotPrice_ = spotPrice();
@@ -1324,7 +1336,7 @@ abstract contract CDPVault is AccessControl, Pause, Permission, InterestRateMode
                 spotPrice_,
                 vaultConfig_.liquidationRatio
             )) {
-                (cache,) = _settleDebtAndReleaseCollateral(cache, position, positionIRS, owner);
+                cache = _settleDebtAndReleaseCollateral(cache, position, positionIRS, owner);
             }
 
             limitOrderId = nextLimitOrderId;
@@ -1345,12 +1357,39 @@ abstract contract CDPVault is AccessControl, Pause, Permission, InterestRateMode
         // revert if not enough credit was exchanged
         if (creditToExchange != cache.creditExchanged) revert CDPVault__exchange_notEnoughExchanged();
 
-        // update the taker's credit and cash balances
-        if (cache.creditExchanged > 0) cdm.modifyBalance(msg.sender, address(this), cache.creditExchanged);
-        if (cache.collateralExchanged > 0) cash[msg.sender] += cache.collateralExchanged;
-
-        emit Exchange(msg.sender, cache.creditExchanged, cache.collateralExchanged);
-
         return (cache.creditExchanged, cache.collateralExchanged);
+    }
+
+    /// @notice Preview exchanging credit for collateral
+    /// @param upperLimitPriceTick Upper limit price tick (> 1.0) [wad]
+    /// @param creditToExchange Amount of credit to exchange for collateral [wad]
+    /// @return creditExchanged Amount of credit exchanged [wad]
+    /// @return collateralExchanged Amount of collateral exchanged [wad]
+    function exchangePreview(
+        uint256 upperLimitPriceTick,
+        uint256 creditToExchange
+    ) external returns (uint256 creditExchanged, uint256 collateralExchanged) {
+        if (msg.sender != address(0)) revert();
+        return _exchange(upperLimitPriceTick, creditToExchange);
+    }
+
+    /// @notice Exchange credit for collateral
+    /// @param upperLimitPriceTick Upper limit price tick (> 1.0) [wad]
+    /// @param creditToExchange Amount of credit to exchange for collateral [wad]
+    /// @return creditExchanged Amount of credit exchanged [wad]
+    /// @return collateralExchanged Amount of collateral exchanged [wad]
+    function exchange(
+        uint256 upperLimitPriceTick,
+        uint256 creditToExchange
+    ) external returns (uint256 creditExchanged, uint256 collateralExchanged) {
+        (creditExchanged, collateralExchanged) = _exchange(upperLimitPriceTick, creditToExchange);
+
+        // update the taker's credit and cash balances
+        if (creditExchanged > 0) cdm.modifyBalance(msg.sender, address(this), creditExchanged);
+        if (collateralExchanged > 0) cash[msg.sender] += collateralExchanged;
+
+        emit Exchange(msg.sender, creditExchanged, collateralExchanged);
+
+        return (creditExchanged, collateralExchanged);
     }
 }

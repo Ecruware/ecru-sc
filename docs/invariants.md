@@ -44,11 +44,11 @@
 ## Liquidation
 
 - a liquidation should always make the position more safe
+- position health after liquidation is smaller or equal to target health factor or fully liquidated
 - liquidator should never pay more than `repayAmount`
 - credit paid should never be larger than `debt` / `liquidationPenalty`
 - `accruedBadDebt` should never exceed the sum of `debt` of liquidated positions
 - `position.collateral` should be zero if `position.normalDebt` is zero for a liquidated position
-- delta debt should only be bigger than `repayAmount` after a liquidation
 - delta debt should be equal to credit paid * `liquidationPenalty`
 
 ## Exchange / Redemptions
