@@ -1274,10 +1274,10 @@ abstract contract CDPVault is AccessControl, Pause, Permission, InterestRateMode
     /// @param creditToExchange Amount of credit to exchange for collateral [wad]
     /// @return creditExchanged Amount of credit exchanged [wad]
     /// @return collateralExchanged Amount of collateral exchanged [wad]
-    function exchange(
+    function _exchange(
         uint256 upperLimitPriceTick,
         uint256 creditToExchange
-    ) external returns (uint256 creditExchanged, uint256 collateralExchanged) {
+    ) internal returns (uint256 creditExchanged, uint256 collateralExchanged) {
         GlobalIRS memory globalIRS = getGlobalIRS();
         VaultConfig memory vaultConfig_ = vaultConfig;
         uint256 spotPrice_ = spotPrice();
@@ -1345,12 +1345,39 @@ abstract contract CDPVault is AccessControl, Pause, Permission, InterestRateMode
         // revert if not enough credit was exchanged
         if (creditToExchange != cache.creditExchanged) revert CDPVault__exchange_notEnoughExchanged();
 
-        // update the taker's credit and cash balances
-        if (cache.creditExchanged > 0) cdm.modifyBalance(msg.sender, address(this), cache.creditExchanged);
-        if (cache.collateralExchanged > 0) cash[msg.sender] += cache.collateralExchanged;
-
-        emit Exchange(msg.sender, cache.creditExchanged, cache.collateralExchanged);
-
         return (cache.creditExchanged, cache.collateralExchanged);
+    }
+
+    /// @notice Preview exchanging credit for collateral
+    /// @param upperLimitPriceTick Upper limit price tick (> 1.0) [wad]
+    /// @param creditToExchange Amount of credit to exchange for collateral [wad]
+    /// @return creditExchanged Amount of credit exchanged [wad]
+    /// @return collateralExchanged Amount of collateral exchanged [wad]
+    function exchangePreview(
+        uint256 upperLimitPriceTick,
+        uint256 creditToExchange
+    ) external returns (uint256 creditExchanged, uint256 collateralExchanged) {
+        if (msg.sender != address(0)) revert();
+        return _exchange(upperLimitPriceTick, creditToExchange);
+    }
+
+    /// @notice Exchange credit for collateral
+    /// @param upperLimitPriceTick Upper limit price tick (> 1.0) [wad]
+    /// @param creditToExchange Amount of credit to exchange for collateral [wad]
+    /// @return creditExchanged Amount of credit exchanged [wad]
+    /// @return collateralExchanged Amount of collateral exchanged [wad]
+    function exchange(
+        uint256 upperLimitPriceTick,
+        uint256 creditToExchange
+    ) external returns (uint256 creditExchanged, uint256 collateralExchanged) {
+        (creditExchanged, collateralExchanged) = _exchange(upperLimitPriceTick, creditToExchange);
+
+        // update the taker's credit and cash balances
+        if (creditExchanged > 0) cdm.modifyBalance(msg.sender, address(this), creditExchanged);
+        if (collateralExchanged > 0) cash[msg.sender] += collateralExchanged;
+
+        emit Exchange(msg.sender, creditExchanged, collateralExchanged);
+
+        return (creditExchanged, collateralExchanged);
     }
 }
