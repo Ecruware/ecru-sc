@@ -141,7 +141,7 @@ function wdivUp(uint256 x, uint256 y) pure returns (uint256 z) {
     assembly {
         // Equivalent to `require(y != 0 && (WAD == 0 || x <= type(uint256).max / WAD))`.
         if iszero(mul(y, iszero(mul(WAD, gt(x, div(not(0), WAD)))))) {
-            // Store the function selector of `DivWadFailed()`.
+            // Store the function selector of `Math__div_overflow()`.
             mstore(0x00, 0xbcbede65)
             // Revert with (offset, size).
             revert(0x1c, 0x04)
