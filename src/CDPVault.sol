@@ -1234,8 +1234,8 @@ abstract contract CDPVault is AccessControl, Pause, Permission, InterestRateMode
 
         // calculate the amount of collateral to exchange
         collateralToExchange = wdiv(creditToExchange, cache.settlementRate);
-        
-        // repay the position's debt balance and release the bought collateral amount
+
+        // bound the amount of collateral to exchange and account for accrued bad debt (if any)        
         if (
             collateralToExchange >= position.collateral && 
             position.normalDebt > deltaNormalDebt
