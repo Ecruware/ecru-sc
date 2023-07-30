@@ -35,17 +35,12 @@ contract LiquidateInvariantTest is InvariantTestBase {
             limitOrderFloor: 1 ether,
             protocolFee: 0.01 ether
         });
+        vault.grantRole(TICK_MANAGER_ROLE, address(liquidateHandler));
 
         CDPVault_TypeA.GlobalIRS memory globalIRS = vault.getGlobalIRS();
         assertEq(globalIRS.baseRate, int64(BASE_RATE_1_005));
-
         liquidateHandler = new LiquidateHandler(vault, this, new GhostVariableStorage(), liquidationRatio, targetHealthFactor);
-
         _setupVaults();
-
-
-        // prepare price ticks
-        vault.grantRole(TICK_MANAGER_ROLE, address(liquidateHandler));
 
         excludeSender(address(vault));
         excludeSender(address(liquidateHandler));

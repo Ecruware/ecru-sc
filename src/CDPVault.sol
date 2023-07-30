@@ -1232,15 +1232,15 @@ abstract contract CDPVault is AccessControl, Pause, Permission, InterestRateMode
         (claimedRebate, positionIRS.accruedRebate) = _calculateRebateClaim(deltaDebt, debt, positionIRS.accruedRebate);
         deltaNormalDebt = calculateNormalDebt(deltaDebt, positionIRS.snapshotRateAccumulator, claimedRebate);
 
-        // calculate the amount of collateral to exchange
+        // calculate and bound the amount of collateral to exchange
         collateralToExchange = wdiv(creditToExchange, cache.settlementRate);
+        if (collateralToExchange > position.collateral) collateralToExchange = position.collateral;
 
-        // bound the amount of collateral to exchange and account for accrued bad debt (if any)        
+        // account for accrued bad debt (if any)        
         if (
-            collateralToExchange >= position.collateral && 
+            collateralToExchange == position.collateral && 
             position.normalDebt > deltaNormalDebt
         ){
-            collateralToExchange = position.collateral;
             cache.accruedBadDebt += debt - deltaDebt;
             deltaNormalDebt = position.normalDebt;
         }
