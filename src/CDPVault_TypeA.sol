@@ -112,9 +112,6 @@ contract CDPVault_TypeA is CDPVault, ICDPVault_TypeA {
 
         uint64 rateAccumulator = _calculateRateAccumulator(globalIRS, cache.totalNormalDebt);
 
-        // accrues bad debt in all liquidated positions
-        uint256 accruedBadDebt;
-
         for (uint256 i; i < owners.length; ) {
             address owner = owners[i];
             if (!(owner == address(0) || repayAmounts[i] == 0)) {
@@ -148,15 +145,7 @@ contract CDPVault_TypeA is CDPVault, ICDPVault_TypeA {
                 cache.maxCreditToExchange = min(repayAmounts[i], wdiv(maxDebtToRecover, cache.settlementPenalty));
 
                 // liquidate the position
-                (cache, position) = _settleDebtAndReleaseCollateral(cache, position, positionIRS, owner);
-
-                // account any residual debt as bad debt if the position does not have any collateral left
-                if (position.collateral == 0 && position.normalDebt > 0) {
-                    accruedBadDebt += calculateDebt(
-                        position.normalDebt, positionIRS.snapshotRateAccumulator, positionIRS.accruedRebate
-                    );
-                    delete positions[owner];
-                }
+                cache = _settleDebtAndReleaseCollateral(cache, position, positionIRS, owner);
             }
 
             unchecked { ++i; }
@@ -181,9 +170,9 @@ contract CDPVault_TypeA is CDPVault, ICDPVault_TypeA {
         cash[msg.sender] += cache.collateralExchanged;
 
         // try absorbing any accrued bad debt by applying for a bail out and mark down the residual bad debt
-        if (accruedBadDebt != 0) {
+        if (cache.accruedBadDebt != 0) {
             // apply for a bail out from the Buffer
-            buffer.bailOut(accruedBadDebt); 
+            buffer.bailOut(cache.accruedBadDebt); 
         }
     }
 }

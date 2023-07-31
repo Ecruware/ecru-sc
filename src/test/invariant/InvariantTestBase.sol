@@ -5,13 +5,16 @@ import {IERC20} from "openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
 import "../invariant/handlers/BaseHandler.sol";
+import {LiquidateHandler} from "../invariant/handlers/LiquidateHandler.sol";
 
 import {TestBase} from "../TestBase.sol";
 
 import {CDPVaultConstants, CDPVaultConfig, CDPVault_TypeAConfig} from "../../interfaces/ICDPVault_TypeA_Factory.sol";
-import {WAD, wmul} from "../../utils/Math.sol";
+
+import {WAD, wmul, wdiv} from "../../utils/Math.sol";
 
 import {CDM, ACCOUNT_CONFIG_ROLE, getCredit, getDebt} from "../../CDM.sol";
+import {BAIL_OUT_QUALIFIER_ROLE} from "../../Buffer.sol";
 import {CDPVault, calculateDebt} from "../../CDPVault.sol";
 import {CDPVault_TypeA_Factory} from "../../CDPVault_TypeA_Factory.sol";
 import {CDPVaultUnwinderFactory} from "../../CDPVaultUnwinder.sol";
@@ -22,19 +25,16 @@ import {CDPVault_TypeAWrapper, CDPVault_TypeAWrapper_Deployer} from "./CDPVault_
 /// @notice Base test contract with common logic needed by all invariant test contracts.
 contract InvariantTestBase is TestBase {
 
+    uint256 constant internal EPSILON = 500;
+
     uint64 constant internal BASE_RATE_1_0 = 1 ether; // 0% base rate
     uint64 constant internal BASE_RATE_1_005 = 1000000000157721789; // 0.5% base rate
     uint64 constant internal BASE_RATE_1_025 = 1000000000780858271; // 2.5% base rate
 
     /// ======== Storage ======== ///
 
-    error InvariantTestBase__assertGeEpsilon_fail(uint256 a, uint256 b);
-    error InvariantTestBase__assertEqEpsilon_fail(uint256 a, uint256 b);
-
     modifier printReport(BaseHandler handler) {
-        {
         _;
-        }
         handler.printCallReport();
     }
 
@@ -308,7 +308,7 @@ contract InvariantTestBase is TestBase {
             address user = handler.getActor(USERS_CATEGORY, i);
             CDPVault.PositionIRS memory positionIRS = vault.getPositionIRS(user);
             (, uint256 normalDebt) = vault.positions(user);
-            (bytes32 prevValue, bytes32 value) = handler.getTrackedValue(keccak256(abi.encode(SNAPSHOT_RATE_ACCUMULATOR, user)));
+            (bytes32 prevValue, bytes32 value) = handler.getTrackedValue(getValueKey(user, SNAPSHOT_RATE_ACCUMULATOR));
             uint256 deltaRateAccumulator = uint256(value) - uint256(prevValue);
             assertEq(positionIRS.snapshotRateAccumulator, uint256(value));
             assertGe(wmul(normalDebt, deltaRateAccumulator), positionIRS.accruedRebate);
@@ -331,7 +331,7 @@ contract InvariantTestBase is TestBase {
         
         for (uint256 i = 0; i < userCount; ++i) {
             address user = handler.getActor(USERS_CATEGORY, i);
-            (bytes32 prevValue, bytes32 value) = handler.getTrackedValue(keccak256(abi.encode(SNAPSHOT_RATE_ACCUMULATOR, user)));
+            (bytes32 prevValue, bytes32 value) = handler.getTrackedValue(getValueKey(user, SNAPSHOT_RATE_ACCUMULATOR));
             assertGe(uint256(value), uint256(prevValue));
         }
     }
@@ -364,6 +364,105 @@ contract InvariantTestBase is TestBase {
         }
     }
 
+    /// ======== Liquidation Invariant Asserts ======== ///
+    /*
+    Liquidation Invariants:
+        - Invariant A: a liquidation should always make the position more safe
+        - Invariant B: position health after liquidation is smaller or equal to target health factor
+        - Invariant C: liquidator should never pay more than `repayAmount`
+        - Invariant D: credit paid should never be larger than `debt` / `liquidationPenalty`
+        - Invariant E: `accruedBadDebt` should never exceed the sum of `debt` of liquidated positions
+        - Invariant F: `position.collateral` should be zero if `position.normalDebt` is zero for a liquidated position
+        - Invariant G: delta debt should be equal to credit paid * `liquidationPenalty`
+    */
+
+    // - Invariant A: a liquidation should always make the position more safe
+    function assert_invariant_Liquidation_A(LiquidateHandler handler) public {
+        uint256 userCount = handler.liquidatedPositionsCount();
+        for (uint256 i = 0; i < userCount; ++i) {
+            address position = handler.liquidatedPositions(i);
+            bool isSafeLiquidation = handler.getIsSafeLiquidation(position);
+            (uint256 prevHealthRation, uint256 currentHealthRatio) = handler.getPositionHealth(position);
+            
+            if (isSafeLiquidation) assertGe(currentHealthRatio, prevHealthRation);
+        }
+    }
+
+
+    // - Invariant B: position health after liquidation is smaller or equal to target health factor 
+    // or fully liquidated
+    function assert_invariant_Liquidation_B(CDPVault_TypeAWrapper vault, LiquidateHandler handler) public {
+        uint256 userCount = handler.liquidatedPositionsCount();
+        (, , uint64 targetHealthFactor) = vault.liquidationConfig();
+        for (uint256 i = 0; i < userCount; ++i) {
+            address position = handler.liquidatedPositions(i);
+            (, uint256 currentHealthRatio) = handler.getPositionHealth(position);
+            if(currentHealthRatio == type(uint256).max) continue;
+            
+             assertLe(currentHealthRatio, targetHealthFactor);
+        }
+    }
+
+    // - Invariant C: liquidator should never pay more than `repayAmount`
+    function assert_invariant_Liquidation_C(LiquidateHandler handler) public {
+        uint256 userCount = handler.liquidatedPositionsCount();
+        uint256 totalRepayAmount = 0;
+        for (uint256 i = 0; i < userCount; ++i) {
+            address position = handler.liquidatedPositions(i);
+            uint256 repayAmount = handler.getRepayAmount(position);
+            totalRepayAmount += repayAmount;
+        }
+
+        uint256 creditPaid = handler.creditPaid();
+        assertLe(creditPaid, totalRepayAmount);
+    }
+
+    // - Invariant D: credit paid should never be larger than `debt` / `liquidationPenalty`
+    function assert_invariant_Liquidation_D(CDPVault_TypeAWrapper vault, LiquidateHandler handler) public {
+        (uint64 liquidationPenalty, ,) = vault.liquidationConfig();
+        uint256 userCount = handler.liquidatedPositionsCount();
+        if(userCount == 0) return;
+        
+        uint256 totalDebt = handler.preLiquidationDebt();
+        uint256 creditPaid = handler.creditPaid();
+        assertLe(creditPaid, wdiv(totalDebt, liquidationPenalty));
+    }
+
+    // - Invariant E: `accruedBadDebt` should never exceed the sum of `debt` of liquidated positions
+    function assert_invariant_Liquidation_E(LiquidateHandler handler) public {
+        uint256 userCount = handler.liquidatedPositionsCount();
+        if(userCount == 0) return;
+        uint256 totalDebt = handler.preLiquidationDebt();
+        uint256 accruedBadDebt = handler.accruedBadDebt();
+        assertGe(totalDebt, accruedBadDebt);
+    }
+
+    // - Invariant F: `position.collateral` should be zero if `position.normalDebt` is zero for a liquidated position
+    function assert_invariant_Liquidation_F(CDPVault_TypeAWrapper vault, LiquidateHandler handler) public {
+        uint256 userCount = handler.liquidatedPositionsCount();
+        if(userCount == 0) return;
+        for (uint256 i = 0; i < userCount; ++i) {
+            address user = handler.liquidatedPositions(i);
+            (uint256 collateral, uint256 normalDebt) = vault.positions(user);
+            if (collateral == 0) {
+                assertEq(normalDebt, 0);
+            }
+        }
+    }
+
+    // - Invariant G: delta debt should be equal to credit paid * `liquidationPenalty` + badDebt
+    function assert_invariant_Liquidation_G(CDPVault_TypeAWrapper vault, LiquidateHandler handler) public {
+        uint256 userCount = handler.liquidatedPositionsCount();
+        if(userCount == 0) return;
+        
+        (uint64 liquidationPenalty, ,) = vault.liquidationConfig();
+        uint256 creditPaid = handler.creditPaid();
+        uint256 deltaDebt = handler.preLiquidationDebt() - handler.postLiquidationDebt();
+        uint256 accruedBadDebt = handler.accruedBadDebt();
+
+        assertApproxEqAbs(deltaDebt, wmul(creditPaid,liquidationPenalty) + accruedBadDebt, EPSILON);
+    }
+    
     /// ======== Helper Functions ======== ///
 
     function filterSenders() internal virtual {
@@ -434,7 +533,7 @@ contract InvariantTestBase is TestBase {
                 debtCeiling
             )
         );
-    }
 
-    
+        buffer.grantRole(BAIL_OUT_QUALIFIER_ROLE, address(cdpVaultA));
+    }
 }
