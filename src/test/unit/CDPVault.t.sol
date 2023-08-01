@@ -1314,9 +1314,13 @@ contract CDPVaultTest is TestBase {
 
         vm.warp(block.timestamp + 120 days);
 
+        (, uint256 accruedRebate, uint256 globalAccruedRebate) = vault.virtualIRS(positionA);
+        assertGt(accruedRebate, 0);
+        assertEq(accruedRebate, globalAccruedRebate);
+
         vault.modifyCollateralAndDebt(positionA, address(this), address(this), -50 ether, -40 ether);
 
-        (, uint256 accruedRebate, uint256 globalAccruedRebate) = vault.virtualIRS(positionA);
+        (, accruedRebate, globalAccruedRebate) = vault.virtualIRS(positionA);
         assertGt(accruedRebate, 0);
         assertEq(accruedRebate, globalAccruedRebate);
     }
@@ -1340,11 +1344,15 @@ contract CDPVaultTest is TestBase {
 
         vm.warp(block.timestamp + 120 days);
 
-        vault.modifyCollateralAndDebt(positionA, address(this), address(this), -100 ether, -80 ether);
-
         (, uint256 accruedRebate, uint256 globalAccruedRebate) = vault.virtualIRS(positionA);
         assertGt(accruedRebate, 0);
         assertEq(accruedRebate, globalAccruedRebate);
+
+        vault.modifyCollateralAndDebt(positionA, address(this), address(this), -100 ether, -80 ether);
+
+        (, accruedRebate, globalAccruedRebate) = vault.virtualIRS(positionA);
+        assertEq(accruedRebate, 0);
+        assertEq(globalAccruedRebate, 0);
     }
 
     function test_rebate_multiple_scenario1() public {

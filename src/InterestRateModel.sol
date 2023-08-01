@@ -190,13 +190,10 @@ abstract contract InterestRateModel {
             );
         }
 
+        uint256 deltaGlobalAccruedRebate;
         {
-        uint256 deltaGlobalAccruedRebate = (totalNormalDebtBefore == 0) ? 0 : wmul(
-            wmul(
-                wdiv(globalIRSBefore.averageRebate,totalNormalDebtBefore),
-                rateAccumulatorAfter - globalIRSBefore.rateAccumulator
-            ), 
-            totalNormalDebtAfter
+        deltaGlobalAccruedRebate = (totalNormalDebtBefore == 0) ? 0 : wmul(
+            globalIRSBefore.averageRebate, rateAccumulatorAfter - globalIRSBefore.rateAccumulator
         );
         emit Log("globalIRSBefore.averageRebate", globalIRSBefore.averageRebate);
         emit Log("totalNormalDebtBefore", totalNormalDebtBefore);
@@ -221,11 +218,7 @@ abstract contract InterestRateModel {
         }
 
         accruedInterest = (totalNormalDebtBefore == 0) ? 0 : wmul(
-            wmul(
-                WAD - wdiv(globalIRSBefore.averageRebate,totalNormalDebtBefore),
-                globalIRSAfter.rateAccumulator - globalIRSBefore.rateAccumulator
-            ),
-            totalNormalDebtBefore
-        );
+            globalIRSAfter.rateAccumulator - globalIRSBefore.rateAccumulator, totalNormalDebtBefore) - 
+            deltaGlobalAccruedRebate;
     }
 }
