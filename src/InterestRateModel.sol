@@ -151,11 +151,12 @@ abstract contract InterestRateModel {
         PositionIRS memory positionIRS, uint64 rateAccumulator, uint256 normalDebt
     ) internal pure returns(uint128 accruedRebate) {
         accruedRebate = positionIRS.accruedRebate + uint128(wmul(
-            wmul(positionIRS.rebateFactor, rateAccumulator - positionIRS.snapshotRateAccumulator),
-            normalDebt
+            wmul(normalDebt, rateAccumulator - positionIRS.snapshotRateAccumulator),
+            positionIRS.rebateFactor
         ));
     }
 
+    event Log(string, uint256);
     /// @notice Calculates the new global interest state
     /// @param globalIRSBefore Previous global interest rate state
     /// @param rateAccumulatorAfter Updated rate accumulator [wad]
@@ -176,14 +177,14 @@ abstract contract InterestRateModel {
         uint64 rebateFactorBefore,
         uint64 rebateFactorAfter,
         uint128 claimedRebate
-    ) internal view returns (GlobalIRS memory globalIRSAfter, uint256 accruedInterest) {
+    ) internal returns (GlobalIRS memory globalIRSAfter, uint256 accruedInterest) {
         uint256 totalNormalDebtAfter = add(totalNormalDebtBefore, deltaNormalDebt);
         uint256 averageRebate = globalIRSBefore.averageRebate;
 
         if (deltaNormalDebt != 0 || rebateFactorBefore != rebateFactorAfter) {
             averageRebate = 
             (
-                globalIRSBefore.averageRebate
+                averageRebate
                 - wmul(rebateFactorBefore, normalDebtBefore)
                 + wmul(rebateFactorAfter, add(normalDebtBefore, deltaNormalDebt))
             );
@@ -197,7 +198,18 @@ abstract contract InterestRateModel {
             ), 
             totalNormalDebtAfter
         );
-
+        emit Log("globalIRSBefore.averageRebate", globalIRSBefore.averageRebate);
+        emit Log("totalNormalDebtBefore", totalNormalDebtBefore);
+        emit Log("rateAccumulatorAfter", rateAccumulatorAfter);
+        emit Log("globalIRSBefore.rateAccumulator", globalIRSBefore.rateAccumulator);
+        emit Log("totalNormalDebtAfter", totalNormalDebtAfter);
+        emit Log("-----------------------------",0);
+        emit Log("new averageRebate", averageRebate);
+        emit Log("before averageRebate", globalIRSBefore.averageRebate);
+        emit Log("totalNormalDebtAfter", totalNormalDebtAfter);
+        emit Log("globalIRSBefore.globalAccruedRebate", globalIRSBefore.globalAccruedRebate);
+        emit Log("deltaGlobalAccruedRebate", deltaGlobalAccruedRebate);
+        emit Log("claimedRebate", claimedRebate);
         uint256 globalAccruedRebate = globalIRSBefore.globalAccruedRebate + deltaGlobalAccruedRebate - claimedRebate;
         globalIRSAfter = GlobalIRS({
             baseRate: globalIRSBefore.baseRate,

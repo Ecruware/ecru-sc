@@ -47,7 +47,7 @@ contract InterestRateModelWrapper is InterestRateModel, Test {
         uint64 rebateFactorBefore,
         uint64 rebateFactorAfter,
         uint128 claimedRebate
-    ) public view returns(
+    ) public returns(
         GlobalIRS memory globalIRSAfter, uint256 accruedInterest
     ){
         (globalIRSAfter, accruedInterest) = _calculateGlobalIRS(

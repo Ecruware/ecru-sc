@@ -855,7 +855,7 @@ abstract contract PositionAction is IERC3156FlashBorrower, ICreditFlashBorrower,
         address vault,
         address position,
         uint256 debt
-    ) internal view returns (uint256 normalDebt) {
+    ) internal returns (uint256 normalDebt) {
         (uint64 rateAccumulator, uint256 accruedRebate,) = ICDPVault(vault).virtualIRS(position);
         normalDebt = calculateNormalDebt(debt, rateAccumulator, accruedRebate);
     }

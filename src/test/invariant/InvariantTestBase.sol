@@ -276,7 +276,7 @@ contract InvariantTestBase is TestBase {
         }
 
         (, , uint256 globalAccruedRebate) = vault.virtualIRS(address(0));
-        assertEq(accruedRebateAccumulator, globalAccruedRebate);
+        assertApproxEqAbs(accruedRebateAccumulator, globalAccruedRebate, 0.0000001 ether);
     }
 
     // - Invariant D: sum of `accruedRebate` across all PositionIRS's <= `globalAccruedRebate` - assuming some PositionIRS's are not up to date

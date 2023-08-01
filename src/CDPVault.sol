@@ -729,7 +729,7 @@ abstract contract CDPVault is AccessControl, Pause, Permission, InterestRateMode
     /// @return rateAccumulator Current global rate accumulator [wad]
     /// @return accruedRebate The accrued rebate of a position [wad]
     /// @return globalAccruedRebate The global accrued rebate [wad]
-    function virtualIRS(address position) public view override returns (
+    function virtualIRS(address position) public override returns (
         uint64 rateAccumulator, uint256 accruedRebate, uint256 globalAccruedRebate
     ) {
         GlobalIRS memory globalIRS = getGlobalIRS();
@@ -845,6 +845,7 @@ abstract contract CDPVault is AccessControl, Pause, Permission, InterestRateMode
     ///   6. store the new global interest rate state
     ///   7. collect any protocol fees
     /// This method is called by `modifyCollateralAndDebt`, `createLimitOrder` and `cancelLimitOrder`
+    event LLog(string, uint);
     function _updateLimitOrderAndIRS(
         address owner,
         uint256 normalDebtBefore,
@@ -864,11 +865,15 @@ abstract contract CDPVault is AccessControl, Pause, Permission, InterestRateMode
         {
         uint64 rateAccumulator = _calculateRateAccumulator(globalIRS, totalNormalDebtBefore);        
         positionIRS.accruedRebate = _calculateAccruedRebate(positionIRS, rateAccumulator, normalDebtBefore);
+
+        emit LLog("position.accruedRebate", positionIRS.accruedRebate);
         positionIRS.snapshotRateAccumulator = rateAccumulator;
         }
         (claimedRebate, positionIRS.accruedRebate) = _calculateRebateClaim(
             (deltaNormalDebt < 0) ? uint256(-deltaNormalDebt) : 0, normalDebtBefore, positionIRS.accruedRebate
         );
+        emit LLog("position.accruedRebate", positionIRS.accruedRebate);
+        emit LLog("claimedRebate", claimedRebate);
 
         uint256 accruedInterest;
         (globalIRS, accruedInterest) = _updateLimitOrderAndPositionIRSAndCalculateGlobalIRS(
@@ -881,6 +886,7 @@ abstract contract CDPVault is AccessControl, Pause, Permission, InterestRateMode
             claimedRebate,
             initialRebateFactor
         );
+        emit LLog("globalIRS.globalAccruedRebate", globalIRS.globalAccruedRebate);
 
         _checkForEmergencyModeAndStoreGlobalIRSAndCollectFees(
             globalIRS, accruedInterest, add(totalNormalDebtBefore, deltaNormalDebt), spotPrice_, globalLiquidationRatio

@@ -197,7 +197,7 @@ contract CDPVaultTest is TestBase {
                             HELPER FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    function _virtualDebt(CDPVault_TypeA vault, address position) internal view returns (uint256) {
+    function _virtualDebt(CDPVault_TypeA vault, address position) internal returns (uint256) {
         (, uint256 normalDebt) = vault.positions(position);
         (uint64 rateAccumulator, uint256 accruedRebate, ) = vault.virtualIRS(position);
         return wmul(rateAccumulator, normalDebt) - accruedRebate;
@@ -1274,7 +1274,7 @@ contract CDPVaultTest is TestBase {
         );
         vm.stopPrank();
 
-        limitOrderID = limitOrderID = uint256(uint160(address(positionB)));
+        limitOrderID = uint256(uint160(address(positionB)));
         vm.startPrank(address(positionB));
         assertEq(
             limitOrderID,
@@ -1282,13 +1282,234 @@ contract CDPVaultTest is TestBase {
         );
         vm.stopPrank();
 
-        limitOrderID = limitOrderID = uint256(uint160(address(positionC)));
+        limitOrderID = uint256(uint160(address(positionC)));
         vm.startPrank(address(positionC));
         assertEq(
             limitOrderID,
             vault.getLimitOrder(WAD,2)
         );
         vm.stopPrank();
+    }
+
+    function test_rebate_simple_partialRepay() public {
+        CDPVault_TypeA vault = createCDPVault_TypeA(token, 150 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_005, 0, 0);
+        
+        // create position
+        token.mint(address(this), 100 ether);
+        token.approve(address(vault), 100 ether);
+        vault.deposit(address(this), 100 ether);
+        assertEq(vault.cash(address(this)), 100 ether);
+        address positionA = address(new PositionOwner(vault));
+        vault.modifyCollateralAndDebt(positionA, address(this), address(this), 100 ether, 80 ether);
+        assertEq(credit(address(this)), 80 ether);
+
+        vault.addLimitPriceTick(WAD, 0);
+        // [WAD, 1.01 ether]
+        vault.addLimitPriceTick(1.01 ether, 0);
+        // [WAD, 1.005 ether, 1.01 ether]
+        vault.addLimitPriceTick(1.005 ether, 1.01 ether);
+
+        vm.prank(positionA);
+        vault.createLimitOrder(WAD);
+
+        vm.warp(block.timestamp + 120 days);
+
+        vault.modifyCollateralAndDebt(positionA, address(this), address(this), -50 ether, -40 ether);
+
+        (, uint256 accruedRebate, uint256 globalAccruedRebate) = vault.virtualIRS(positionA);
+        assertGt(accruedRebate, 0);
+        assertEq(accruedRebate, globalAccruedRebate);
+    }
+
+    function test_rebate_simple_fullRepay() public {
+        CDPVault_TypeA vault = createCDPVault_TypeA(token, 150 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_005, 0, 0);
+        
+        // create position
+        token.mint(address(this), 100 ether);
+        token.approve(address(vault), 100 ether);
+        vault.deposit(address(this), 100 ether);
+        assertEq(vault.cash(address(this)), 100 ether);
+        address positionA = address(new PositionOwner(vault));
+        vault.modifyCollateralAndDebt(positionA, address(this), address(this), 100 ether, 80 ether);
+        assertEq(credit(address(this)), 80 ether);
+
+        vault.addLimitPriceTick(WAD, 0);
+
+        vm.prank(positionA);
+        vault.createLimitOrder(WAD);
+
+        vm.warp(block.timestamp + 120 days);
+
+        vault.modifyCollateralAndDebt(positionA, address(this), address(this), -100 ether, -80 ether);
+
+        (, uint256 accruedRebate, uint256 globalAccruedRebate) = vault.virtualIRS(positionA);
+        assertGt(accruedRebate, 0);
+        assertEq(accruedRebate, globalAccruedRebate);
+    }
+
+    function test_rebate_multiple_scenario1() public {
+        CDPVault_TypeA vault = createCDPVault_TypeA(token, 100_000_000 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_005, 0, 0);
+        
+        // create position
+        token.mint(address(this), 100_000_000 ether);
+        token.approve(address(vault), 100_000_000 ether);
+        vault.deposit(address(this), 100_000_000 ether);
+        assertEq(vault.cash(address(this)), 100_000_000 ether);
+
+        address positionA = address(new PositionOwner(vault));
+        vault.modifyCollateralAndDebt(positionA, address(this), address(this), 10_000_000 ether, 8_000_000 ether);
+        assertEq(credit(address(this)), 8_000_000 ether);
+
+        address positionB = address(new PositionOwner(vault));
+        vault.modifyCollateralAndDebt(positionB, address(this), address(this), 10_000_000 ether, 8_000_000 ether);
+        assertEq(credit(address(this)), 16_000_000 ether);
+
+        address positionC = address(new PositionOwner(vault));
+        vault.modifyCollateralAndDebt(positionC, address(this), address(this), 10_000_000 ether, 8_000_000 ether);
+        assertEq(credit(address(this)), 24_000_000 ether);
+
+        vault.addLimitPriceTick(WAD, 0);
+        // [WAD, 1.01 ether]
+        vault.addLimitPriceTick(1.01 ether, 0);
+        // [WAD, 1.005 ether, 1.01 ether]
+        vault.addLimitPriceTick(1.005 ether, 1.01 ether);
+
+        vm.prank(positionA);
+        vault.createLimitOrder(WAD);
+
+        vm.warp(block.timestamp + 1);
+        vm.prank(positionB);
+        vault.createLimitOrder(1.005 ether);
+
+        vm.prank(positionC);
+        vault.createLimitOrder(1.01 ether);
+
+        vm.warp(block.timestamp + 360 days);
+
+        vault.modifyCollateralAndDebt(positionA, address(this), address(this), -4_000_000 ether, -4_000_000 ether);
+        vault.modifyCollateralAndDebt(positionB, address(this), address(this), -4_000_000 ether, -4_000_000 ether);
+        vm.warp(block.timestamp + 120 days);
+        vault.modifyCollateralAndDebt(positionC, address(this), address(this), -4_000_000 ether, -4_000_000 ether);
+
+        vm.warp(block.timestamp + 120 days);
+
+        (, uint256 accruedRebateA, uint256 globalAccruedRebate) = vault.virtualIRS(positionA);
+        (, uint256 accruedRebateB, ) = vault.virtualIRS(positionB);
+        (, uint256 accruedRebateC, ) = vault.virtualIRS(positionC);
+        assertGt(accruedRebateA, 0);
+        assertGe(accruedRebateA, accruedRebateB);
+        assertGe(accruedRebateC, accruedRebateB);
+        assertEq(accruedRebateA + accruedRebateB + accruedRebateC, globalAccruedRebate);
+    }
+
+    function test_rebate_multiple_scenario2() public {
+        CDPVault_TypeA vault = createCDPVault_TypeA(token, 100_000_000 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, 1000000021919499726, 0, 0);
+        
+        // create position
+        token.mint(address(this), 100_000_000 ether);
+        token.approve(address(vault), 100_000_000 ether);
+        vault.deposit(address(this), 100_000_000 ether);
+        assertEq(vault.cash(address(this)), 100_000_000 ether);
+
+        vault.addLimitPriceTick(38000000000000000000, 0);
+
+        vm.warp(2592001);
+
+        address positionA = address(new PositionOwner(vault));
+        vault.modifyCollateralAndDebt(positionA, address(this), address(this), 999999999999999999999999, 719999984217960543214409);
+
+        vm.prank(positionA);
+        vault.createLimitOrder(38000000000000000000);
+
+        address positionB = address(new PositionOwner(vault));
+        vault.modifyCollateralAndDebt(positionB, address(this), address(this), 999900000020284758795064, 719927968453682866246545);
+
+        vm.warp(2600533);
+        vault.modifyCollateralAndDebt(positionA, address(this), address(this), 0, -93599997948334870617873);
+
+        (, uint256 accruedRebateA, uint256 globalAccruedRebate) = vault.virtualIRS(positionA);
+        (, uint256 accruedRebateB, ) = vault.virtualIRS(positionB);
+        assertGe(accruedRebateA, 0);
+        assertGe(accruedRebateA, accruedRebateB);
+        assertEq(accruedRebateA + accruedRebateB, globalAccruedRebate);
+
+        (uint256 collateral, uint256 normalDebt) = vault.positions(positionA);
+        emit log_named_uint("collateral", collateral);
+        emit log_named_uint("normalDebt", normalDebt);
+        (collateral, normalDebt) = vault.positions(positionB);
+        emit log_named_uint("collateral", collateral);
+        emit log_named_uint("normalDebt", normalDebt);
+    }
+
+    function test_rebate_multiple_scenario3() public {
+        CDPVault_TypeA vault = createCDPVault_TypeA(token, 100_000_000 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, 1000000021919499726, 0, 0);
+        
+        // create position
+        token.mint(address(this), 100_000_000 ether);
+        token.approve(address(vault), 100_000_000 ether);
+        vault.deposit(address(this), 100_000_000 ether);
+        assertEq(vault.cash(address(this)), 100_000_000 ether);
+
+        vault.addLimitPriceTick(38000000000000000000, 0);
+
+        vm.warp(2592001);
+
+        address positionA = address(new PositionOwner(vault));
+        vault.modifyCollateralAndDebt(positionA, address(this), address(this), 999999999999999999999999, 719999984217960543214409);
+
+        vm.prank(positionA);
+        vault.createLimitOrder(38000000000000000000);
+
+        address positionB = address(new PositionOwner(vault));
+        vault.modifyCollateralAndDebt(positionB, address(this), address(this), 999900000020284758795064, 719927968453682866246545);
+
+        vm.warp(2600533);
+        vault.modifyCollateralAndDebt(positionA, address(this), address(this), 0, -93599997948334870617873);
+
+        (, uint256 accruedRebateA, uint256 globalAccruedRebate) = vault.virtualIRS(positionA);
+        (, uint256 accruedRebateB, ) = vault.virtualIRS(positionB);
+        assertGe(accruedRebateA, 0);
+        assertGe(accruedRebateA, accruedRebateB);
+        assertEq(accruedRebateA + accruedRebateB, globalAccruedRebate);
+
+        (uint256 collateral, uint256 normalDebt) = vault.positions(positionA);
+        emit log_named_uint("collateral", collateral);
+        emit log_named_uint("normalDebt", normalDebt);
+        (collateral, normalDebt) = vault.positions(positionB);
+        emit log_named_uint("collateral", collateral);
+        emit log_named_uint("normalDebt", normalDebt);
+    }
+
+    function test_rebate_multiple_scenario4() public {
+        CDPVault_TypeA vault = createCDPVault_TypeA(token, 100_000_000 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, 1000000021919499726, 0, 0);
+        
+        // create position
+        token.mint(address(this), 100_000_000 ether);
+        token.approve(address(vault), 100_000_000 ether);
+        vault.deposit(address(this), 100_000_000 ether);
+        assertEq(vault.cash(address(this)), 100_000_000 ether);
+
+        vault.addLimitPriceTick(12000000000000000000, 0);
+
+        address positionA = address(new PositionOwner(vault));
+        address positionB = address(new PositionOwner(vault));
+        address positionC = address(new PositionOwner(vault));
+
+        vm.warp(4993055);
+
+        vault.modifyCollateralAndDebt(positionA, address(this), address(this), 999900000000000027506449, 683018047558426435957724);
+
+        vm.prank(positionA);
+        vault.createLimitOrder(12000000000000000000);
+
+        vm.warp(7511476);
+        vault.modifyCollateralAndDebt(positionB, address(this), address(this), 0, 0) ;
+
+        vm.warp(10058020);
+        vault.modifyCollateralAndDebt(positionC, address(this), address(this), 0, 0) ;
+
+        vm.warp(12119447);
+        vault.modifyCollateralAndDebt(positionA, address(this), address(this), 0, -683018047558426435957724);
     }
 
     function test_reserve_interest() public {

@@ -240,7 +240,7 @@ contract IntegrationTestBase is TestBase {
         return uint256(PriceFeed(0x773616E4d11A78F511299002da57A0a94577F1f4).latestAnswer());
     }
 
-    function _virtualDebt(CDPVault_TypeA vault, address position) internal view returns (uint256) {
+    function _virtualDebt(CDPVault_TypeA vault, address position) internal returns (uint256) {
         (, uint256 normalDebt) = vault.positions(position);
         (uint64 rateAccumulator, uint256 accruedRebate, ) = vault.virtualIRS(position);
         return wmul(rateAccumulator, normalDebt) - accruedRebate;
@@ -250,13 +250,13 @@ contract IntegrationTestBase is TestBase {
         address vault,
         address position,
         uint256 debt
-    ) internal view returns (uint256 normalDebt) {
+    ) internal returns (uint256 normalDebt) {
         (uint64 rateAccumulator, uint256 accruedRebate,) = CDPVault(vault).virtualIRS(position);
         normalDebt = calculateNormalDebt(debt, rateAccumulator, accruedRebate);
         if (calculateDebt(normalDebt, rateAccumulator, accruedRebate) < debt) normalDebt += 1;
     }
 
-    function _normalDebtToDebt(address vault, address position, uint256 normalDebt) internal view returns (uint256) {
+    function _normalDebtToDebt(address vault, address position, uint256 normalDebt) internal returns (uint256) {
         (uint64 rateAccumulator, uint256 accruedRebate,) = CDPVault(vault).virtualIRS(position);
         return calculateDebt(normalDebt, rateAccumulator, accruedRebate);
     }

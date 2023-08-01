@@ -106,8 +106,15 @@ abstract contract BaseHandler is  CommonBase, StdCheats, StdUtils {
         }
     }
 
+    // warp the time to the current timestamp
     modifier useCurrentTimestamp() {
         vm.warp(testContract.currentTimestamp());
+        _;
+    }
+
+    // warp the time to the current timestamp, and then warp it by the given amount after the code execution
+    modifier useAndUpdateCurrentTimestamp(uint256 warpAmount_) {
+        warpInterval(warpAmount_);
         _;
     }
 
@@ -127,7 +134,7 @@ abstract contract BaseHandler is  CommonBase, StdCheats, StdUtils {
 
     function warpInterval(uint256 warpAmount_) public {
         warpAmount_ = bound(warpAmount_, minWarp, maxWarp);
-        testContract.setCurrentTimestamp(block.timestamp + warpAmount_);
+        testContract.setCurrentTimestamp(testContract.currentTimestamp() + warpAmount_);
         vm.warp(testContract.currentTimestamp());
     }
 

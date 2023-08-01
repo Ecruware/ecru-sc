@@ -9,7 +9,7 @@ import {CDPVault_TypeAWrapper} from "../CDPVault_TypeAWrapper.sol";
 
 import {InterestRateModel} from "../../../InterestRateModel.sol";
 import {ICDPVaultBase} from "../../../interfaces/ICDPVault.sol";
-import {wdiv} from "../../../utils/Math.sol";
+import {wdiv, WAD} from "../../../utils/Math.sol";
 import {CDM} from "../../../CDM.sol";
 
 contract BorrowHandler is BaseHandler {
@@ -70,7 +70,7 @@ contract BorrowHandler is BaseHandler {
     }
 
     // Account (with or without existing position) deposits collateral and increases debt
-    function borrow(uint256 collateralSeed, uint256 warpAmount) public useCurrentTimestamp {
+    function borrow(uint256 collateralSeed, uint256 warpAmount) public useAndUpdateCurrentTimestamp(warpAmount) {
         trackCallStart(msg.sig);
 
         address owner = msg.sender;
@@ -98,13 +98,11 @@ contract BorrowHandler is BaseHandler {
         _trackRateAccumulator();
         _trackSnapshotRateAccumulator(owner);
         
-        warpInterval(warpAmount);
-
         trackCallEnd(msg.sig);
     }
 
     // Partially repays debt and withdraws collateral
-    function partialRepay(uint256 userSeed, uint256 percent) public useCurrentTimestamp {
+    function partialRepay(uint256 userSeed, uint256 percent, uint256 warpAmount) public useAndUpdateCurrentTimestamp(warpAmount) {
         trackCallStart(msg.sig);
 
         percent = bound(percent, 1, 99);
@@ -134,7 +132,7 @@ contract BorrowHandler is BaseHandler {
     }
 
     // Fully repay debt and withdraws collateral
-    function repay(uint256 userSeed) public useCurrentTimestamp {
+    function repay(uint256 userSeed, uint256 warpAmount) public useAndUpdateCurrentTimestamp(warpAmount) {
         trackCallStart(msg.sig);
 
         // same as partialRepay, but 100%
@@ -242,15 +240,17 @@ contract BorrowHandler is BaseHandler {
     }
 
     // Governance updates the base interest rate
-    function changeBaseRate(uint256 /*baseRate*/) public {
+    function changeBaseRate(uint256 baseRate) public useCurrentTimestamp {
         trackCallStart(msg.sig);
-        // baseRate = bound (baseRate, 1, WAD);
+        warpInterval(60);
+        baseRate = bound (baseRate, WAD, 1000000021919499726);
         // vault.setParameter("baseRate", baseRate);
+        warpInterval(60);
         trackCallEnd(msg.sig);
     }
 
     // Oracle updates the collateral spot price
-    function changeSpotPrice(uint256 price) public {
+    function changeSpotPrice(uint256 price) public useCurrentTimestamp {
         trackCallStart(msg.sig);
 
         price = bound(price, minSpotPrice, maxSpotPrice);

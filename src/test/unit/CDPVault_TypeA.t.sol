@@ -19,7 +19,7 @@ contract CDPVault_TypeATest is TestBase {
                             HELPER FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    function _virtualDebt(CDPVault_TypeA vault, address position) internal view returns (uint256) {
+    function _virtualDebt(CDPVault_TypeA vault, address position) internal returns (uint256) {
         (, uint256 normalDebt) = vault.positions(position);
         (uint64 rateAccumulator, uint256 accruedRebate, ) = vault.virtualIRS(position);
         return wmul(rateAccumulator, normalDebt) - accruedRebate;

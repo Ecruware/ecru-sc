@@ -84,7 +84,7 @@ interface ICDPVaultBase is IAccessControl, IPause, IPermission {
 
     function getLimitOrder(uint256 priceTick, uint256 index) external view returns (uint256 limitOrderId);
 
-    function virtualIRS(address position) external view returns (uint64 rateAccumulator, uint256 positionAccruedRebate, uint256 globalAccruedRebate);
+    function virtualIRS(address position) external returns (uint64 rateAccumulator, uint256 positionAccruedRebate, uint256 globalAccruedRebate);
 
     function calculateRebateFactorForPriceTick(uint256 priceTick) external view returns (uint64);
 
