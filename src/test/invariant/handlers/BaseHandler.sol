@@ -20,6 +20,8 @@ string constant TRACK_FUNCTION_END_KEY = "END";
 
 string constant RATE_ACCUMULATOR =  "rateAccumulator";
 string constant SNAPSHOT_RATE_ACCUMULATOR = "snapshotRateAccumulator";
+string constant GLOBAL_ACCRUED_REBATE =  "globalAccruedRebate";
+string constant ACCRUED_REBATE = "accruedRebate";
 
 function getValueKey(address user, string memory key) pure returns (bytes32) {
     return keccak256(abi.encode(user, key));

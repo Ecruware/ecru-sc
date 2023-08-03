@@ -97,6 +97,8 @@ contract BorrowHandler is BaseHandler {
 
         _trackRateAccumulator();
         _trackSnapshotRateAccumulator(owner);
+        _trackGlobalAccruedRebate();
+        _trackAccruedRebate(owner);
         
         trackCallEnd(msg.sig);
     }
@@ -127,6 +129,8 @@ contract BorrowHandler is BaseHandler {
 
         _trackRateAccumulator();
         _trackSnapshotRateAccumulator(owner);
+        _trackGlobalAccruedRebate();
+        _trackAccruedRebate(owner);
 
         trackCallEnd(msg.sig);
     }
@@ -151,6 +155,8 @@ contract BorrowHandler is BaseHandler {
 
         _trackRateAccumulator();
         _trackSnapshotRateAccumulator(owner);
+        _trackGlobalAccruedRebate();
+        _trackAccruedRebate(owner);
 
         trackCallEnd(msg.sig);
     }
@@ -176,6 +182,8 @@ contract BorrowHandler is BaseHandler {
 
         _trackRateAccumulator();
         _trackSnapshotRateAccumulator(owner);
+        _trackGlobalAccruedRebate();
+        _trackAccruedRebate(owner);
 
         trackCallEnd(msg.sig);
     }
@@ -212,6 +220,8 @@ contract BorrowHandler is BaseHandler {
 
         _trackRateAccumulator();
         _trackSnapshotRateAccumulator(owner);
+        _trackGlobalAccruedRebate();
+        _trackAccruedRebate(owner);
 
         trackCallEnd(msg.sig);
     }
@@ -232,6 +242,8 @@ contract BorrowHandler is BaseHandler {
 
         _trackRateAccumulator();
         _trackSnapshotRateAccumulator(owner);
+        _trackGlobalAccruedRebate();
+        _trackAccruedRebate(owner);
 
         removeActor(LIMIT_ORDERS_CATEGORY, owner);
         delete activeLimitOrders[owner];
@@ -288,6 +300,22 @@ contract BorrowHandler is BaseHandler {
         ));
     }
 
+    function getGlobalAccruedRebate() view public returns (uint64) {
+        return uint64(uint256(
+            getGhostValue(
+                keccak256(abi.encode(GLOBAL_ACCRUED_REBATE))
+            )
+        ));
+    }
+
+    function getAccruedRebate(address position) view public returns (uint64) {
+        return uint64(uint256(
+            getGhostValue(
+                getValueKey(position, ACCRUED_REBATE)
+            )
+        ));
+    }
+
     function getPreviousRateAccumulator() view public returns (uint64) {
         bytes32 prevValueKey = keccak256("prevRateAccumulator");
         return uint64(uint256(getGhostValue(prevValueKey)));
@@ -295,6 +323,16 @@ contract BorrowHandler is BaseHandler {
 
     function getPreviousSnapshotRateAccumulator(address position) view public returns (uint64) {
         bytes32 prevValueKey = keccak256(abi.encodePacked(position, "prevSnapshotRateAccumulator"));
+        return uint64(uint256(getGhostValue(prevValueKey)));
+    }
+
+    function getPreviousGlobalAccruedRebate() view public returns (uint64) {
+        bytes32 prevValueKey = keccak256("prevGlobalAccruedRebate");
+        return uint64(uint256(getGhostValue(prevValueKey)));
+    }
+
+    function getPreviousAccruedRebate(address position) view public returns (uint64) {
+        bytes32 prevValueKey = keccak256(abi.encodePacked(position, "prevAccruedRebate"));
         return uint64(uint256(getGhostValue(prevValueKey)));
     }
 
@@ -307,6 +345,17 @@ contract BorrowHandler is BaseHandler {
     function _trackSnapshotRateAccumulator(address position) private {
         InterestRateModel.PositionIRS memory positionIRS = vault.getPositionIRS(position);
         trackValue(getValueKey(position, SNAPSHOT_RATE_ACCUMULATOR), bytes32(uint256(positionIRS.snapshotRateAccumulator)));
+    }
+
+    // Track the current and previous accrued rebate
+    function _trackGlobalAccruedRebate() private {
+        InterestRateModel.GlobalIRS memory globalIRS = vault.getGlobalIRS();
+        trackValue(GLOBAL_ACCRUED_REBATE, bytes32(uint256(globalIRS.globalAccruedRebate)));
+    }
+
+    function _trackAccruedRebate(address position) private {
+        InterestRateModel.PositionIRS memory positionIRS = vault.getPositionIRS(position);
+        trackValue(getValueKey(position, ACCRUED_REBATE), bytes32(uint256(positionIRS.accruedRebate)));
     }
 
     // Generate the tick price for a limit order based on the seed

@@ -788,7 +788,7 @@ abstract contract CDPVault is AccessControl, Pause, Permission, InterestRateMode
             _deriveLimitOrderId(owner),
             limitOrders[_deriveLimitOrderId(owner)],
             add(normalDebtBefore, deltaNormalDebt),
-            (initialRebateFactor == 0) ? positionIRS.rebateFactor : initialRebateFactor
+            (initialRebateFactor == type(uint64).max) ? positionIRS.rebateFactor : initialRebateFactor
         );
 
         // update the position's interest rate state
@@ -971,7 +971,7 @@ abstract contract CDPVault is AccessControl, Pause, Permission, InterestRateMode
             deltaNormalDebt,
             spotPrice_,
             vaultConfig_.globalLiquidationRatio,
-            0
+            type(uint64).max
         );
 
         // update the position's balances,
@@ -1265,7 +1265,7 @@ abstract contract CDPVault is AccessControl, Pause, Permission, InterestRateMode
             position.normalDebt,
             -toInt256(deltaNormalDebt),
             claimedRebate,
-            0
+            type(uint64).max
         );
 
         // repay the position's debt balance and release the bought collateral amount

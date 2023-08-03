@@ -124,9 +124,8 @@ contract InterestRateModelTest is Test {
         uint256 totalNormalDebtAfter,
         uint128 claimedRebate
     ) private pure returns (uint256 globalAccruedRebate) {
-        uint256 deltaGlobalAccruedRebate = (totalNormalDebtBefore == 0) ? 0 : wmul(
-            wmul(wdiv(globalIRSBefore.averageRebate, totalNormalDebtBefore), rateAccumulatorAfter - globalIRSBefore.rateAccumulator), 
-            totalNormalDebtAfter
+        uint256 deltaGlobalAccruedRebate = wmul(globalIRSBefore.averageRebate, rateAccumulatorAfter) - 
+            wmul(globalIRSBefore.averageRebate, globalIRSBefore.rateAccumulator
         );
         globalAccruedRebate = globalIRSBefore.globalAccruedRebate + deltaGlobalAccruedRebate - claimedRebate;
     }
@@ -150,6 +149,7 @@ contract InterestRateModelTest is Test {
             normalDebtBefore
         );
 
+        {
         uint256 globalAccruedRebate = _calculateGlobalAccruedRebate(
             globalIRSBefore,
             rateAccumulatorAfter,
@@ -165,11 +165,18 @@ contract InterestRateModelTest is Test {
             rateAccumulator: rateAccumulatorAfter,
             averageRebate: averageRebate
         });
+        }
 
-        accruedInterest = (totalNormalDebtBefore == 0) ? 0 : wmul(
-            wmul(WAD - wdiv(globalIRSBefore.averageRebate, totalNormalDebtBefore), globalIRSAfter.rateAccumulator - globalIRSBefore.rateAccumulator), 
-            totalNormalDebtBefore
+        {
+        uint256 deltaGlobalAccruedRebate = wmul(
+            globalIRSBefore.averageRebate, rateAccumulatorAfter) - wmul(
+                globalIRSBefore.averageRebate, globalIRSBefore.rateAccumulator
         );
+        accruedInterest = wmul(
+            totalNormalDebtBefore, rateAccumulatorAfter) - wmul(
+                totalNormalDebtBefore, globalIRSBefore.rateAccumulator
+            ) - deltaGlobalAccruedRebate;
+        }
     }
 
     function _validateGlobalIRS(CalculateGlobalParams memory params) private {
@@ -199,11 +206,15 @@ contract InterestRateModelTest is Test {
             averageRebate: averageRebate
         });
 
-        uint256 expectedAccruedInterest = (params.totalNormalDebtBefore == 0) ? 0 : wmul(
-            wmul(WAD - wdiv(params.globalIRSBefore.averageRebate,params.totalNormalDebtBefore), expectedGlobalIRSAfter.rateAccumulator - params.globalIRSBefore.rateAccumulator), 
-            params.totalNormalDebtBefore
+        uint256 deltaGlobalAccruedRebate = wmul(
+            params.globalIRSBefore.averageRebate, expectedGlobalIRSAfter.rateAccumulator) - wmul(
+                params.globalIRSBefore.averageRebate, params.globalIRSBefore.rateAccumulator
         );
-
+        uint256 expectedAccruedInterest = wmul(
+            params.totalNormalDebtBefore, expectedGlobalIRSAfter.rateAccumulator) - wmul(
+                params.totalNormalDebtBefore, params.globalIRSBefore.rateAccumulator
+            ) - deltaGlobalAccruedRebate;
+        
         assertEq(expectedAccruedInterest, params.accruedInterest);
         assertEq(expectedGlobalIRSAfter.baseRate, params.globalIRSAfter.baseRate);
         assertEq(expectedGlobalIRSAfter.globalAccruedRebate, params.globalIRSAfter.globalAccruedRebate);
@@ -301,10 +312,11 @@ contract InterestRateModelTest is Test {
         uint64 rateDelta = rateAccumulator - snapshotRateAccumulator;
         accruedRebate = uint128(bound(accruedRebate, 0, type(uint128).max - wmul(rateDelta, normalDebt)));
         
+        uint256 normalizedRebateFactor = wmul(rebateFactor, normalDebt);
         uint128 expectedAccruedRebate = accruedRebate + uint128(wmul(
-            wmul(rebateFactor, rateDelta),
-            normalDebt
-        ));
+            normalizedRebateFactor, rateAccumulator) - wmul(
+                normalizedRebateFactor, snapshotRateAccumulator)
+        );
 
         uint128 accruedRebate_ = model.calculateAccruedRebate(
             InterestRateModel.PositionIRS({

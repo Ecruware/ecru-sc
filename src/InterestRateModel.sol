@@ -150,10 +150,11 @@ abstract contract InterestRateModel {
     function _calculateAccruedRebate(
         PositionIRS memory positionIRS, uint64 rateAccumulator, uint256 normalDebt
     ) internal pure returns(uint128 accruedRebate) {
+        uint256 normalizedRebateFactor = wmul(positionIRS.rebateFactor, normalDebt);
         accruedRebate = positionIRS.accruedRebate + uint128(wmul(
-            wmul(normalDebt, rateAccumulator - positionIRS.snapshotRateAccumulator),
-            positionIRS.rebateFactor
-        ));
+            normalizedRebateFactor, rateAccumulator) - wmul(
+                normalizedRebateFactor, positionIRS.snapshotRateAccumulator)
+        );
     }
 
     event Log(string, uint256);
@@ -192,8 +193,8 @@ abstract contract InterestRateModel {
 
         uint256 deltaGlobalAccruedRebate;
         {
-        deltaGlobalAccruedRebate = (totalNormalDebtBefore == 0) ? 0 : wmul(
-            globalIRSBefore.averageRebate, rateAccumulatorAfter - globalIRSBefore.rateAccumulator
+        deltaGlobalAccruedRebate = wmul(globalIRSBefore.averageRebate, rateAccumulatorAfter) - 
+            wmul(globalIRSBefore.averageRebate, globalIRSBefore.rateAccumulator
         );
         emit Log("globalIRSBefore.averageRebate", globalIRSBefore.averageRebate);
         emit Log("totalNormalDebtBefore", totalNormalDebtBefore);
@@ -217,8 +218,8 @@ abstract contract InterestRateModel {
         });
         }
 
-        accruedInterest = (totalNormalDebtBefore == 0) ? 0 : wmul(
-            globalIRSAfter.rateAccumulator - globalIRSBefore.rateAccumulator, totalNormalDebtBefore) - 
+        accruedInterest = wmul(totalNormalDebtBefore, rateAccumulatorAfter) - 
+            wmul(totalNormalDebtBefore, globalIRSBefore.rateAccumulator) - 
             deltaGlobalAccruedRebate;
     }
 }

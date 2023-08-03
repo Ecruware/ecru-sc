@@ -235,8 +235,8 @@ contract InvariantTestBase is TestBase {
         - Invariant F: `accruedRebate` <= `normalDebt * deltaRateAccumulator`
         - Invariant G: `globalAccruedRebate` <= `totalNormalDebt * deltaRateAccumulator`
         - Invariant H: `rateAccumulator` at block x <= `rateAccumulator` at block y, if x < y and specifically if `rateAccumulator` was updated in between the blocks x and y
-        - Invariant I: sum of `rateAccumulator * normalDebt` across all positions = `rateAccumulator * totalNormalDebt` at any block x in which all positions (and their `rateAccumulator`) were updated
-        - Invariant J: `snapshotRateAccumulator` is equal to `rateAccumulator` post all IRS updates
+        - Invariant I: `snapshotRateAccumulator` <= `rateAccumulator` in a block where not all positions are updated
+        - Invariant J: `snapshotRateAccumulator` == `rateAccumulator` in a block where all positions are updated
     */
 
     // - Invariant A: `rebateFactor` <= 1 (for all positions)
@@ -276,7 +276,7 @@ contract InvariantTestBase is TestBase {
         }
 
         (, , uint256 globalAccruedRebate) = vault.virtualIRS(address(0));
-        assertApproxEqAbs(accruedRebateAccumulator, globalAccruedRebate, 0.0000001 ether);
+        assertApproxEqAbs(accruedRebateAccumulator, globalAccruedRebate, 1000);
     }
 
     // - Invariant D: sum of `accruedRebate` across all PositionIRS's <= `globalAccruedRebate` - assuming some PositionIRS's are not up to date
@@ -300,7 +300,7 @@ contract InvariantTestBase is TestBase {
         assertGe(vault.totalNormalDebt(), globalIRS.averageRebate);
     }
 
-    // - Invariant F: `accruedRebate` <= `normalDebt * deltaRateAccumulator`
+    // - Invariant F: `deltaAccruedRebate` <= `normalDebt * deltaRateAccumulator`
     function assert_invariant_IRM_F(CDPVault vault, BaseHandler handler) public {
         uint256 userCount = handler.count(USERS_CATEGORY);
         
@@ -308,21 +308,26 @@ contract InvariantTestBase is TestBase {
             address user = handler.getActor(USERS_CATEGORY, i);
             CDPVault.PositionIRS memory positionIRS = vault.getPositionIRS(user);
             (, uint256 normalDebt) = vault.positions(user);
-            (bytes32 prevValue, bytes32 value) = handler.getTrackedValue(getValueKey(user, SNAPSHOT_RATE_ACCUMULATOR));
-            uint256 deltaRateAccumulator = uint256(value) - uint256(prevValue);
-            assertEq(positionIRS.snapshotRateAccumulator, uint256(value));
-            assertGe(wmul(normalDebt, deltaRateAccumulator), positionIRS.accruedRebate);
+            (bytes32 prevRateAccumulator, bytes32 rateAccumulator) = handler.getTrackedValue(getValueKey(user, SNAPSHOT_RATE_ACCUMULATOR));
+            uint256 deltaRateAccumulator = uint256(rateAccumulator) - uint256(prevRateAccumulator);
+            (bytes32 prevAccruedRebate, bytes32 accruedRebate) = handler.getTrackedValue(getValueKey(user, ACCRUED_REBATE));
+            uint256 deltaAccruedRebate = (accruedRebate <= prevAccruedRebate)? 0 : uint256(accruedRebate) - uint256(prevAccruedRebate);
+            assertEq(positionIRS.snapshotRateAccumulator, uint256(rateAccumulator));
+            assertGeDecimal(wmul(normalDebt, deltaRateAccumulator), deltaAccruedRebate, 15);
         }
     }
 
-    // - Invariant G: `globalAccruedRebate` <= `totalNormalDebt * deltaRateAccumulator`
+    // - Invariant G: `deltaGlobalAccruedRebate` <= `totalNormalDebt * deltaRateAccumulator`
     function assert_invariant_IRM_G(CDPVault vault, BaseHandler handler) public {
-        (bytes32 prevValue, bytes32 value) = handler.getTrackedValue(RATE_ACCUMULATOR);
-        uint256 deltaRateAccumulator = uint256(value) - uint256(prevValue);
+        (bytes32 prevRateAccumulator, bytes32 rateAccumulator) = handler.getTrackedValue(RATE_ACCUMULATOR);
+        uint256 deltaRateAccumulator = uint256(rateAccumulator) - uint256(prevRateAccumulator);
+        (bytes32 prevGlobalAccruedRebate, bytes32 globalAccruedRebate) = handler.getTrackedValue(GLOBAL_ACCRUED_REBATE);
+        uint256 deltaGlobalAccruedRebate = (globalAccruedRebate <= prevGlobalAccruedRebate)? 0 : uint256(globalAccruedRebate) - uint256(prevGlobalAccruedRebate);
         CDPVault.GlobalIRS memory globalIRS = vault.getGlobalIRS();
 
-        assertEq(globalIRS.rateAccumulator, uint256(value));
-        assertGe(wmul(vault.totalNormalDebt(), deltaRateAccumulator), globalIRS.globalAccruedRebate);
+        assertEq(globalIRS.rateAccumulator, uint256(rateAccumulator));
+        assertEq(globalIRS.globalAccruedRebate, uint256(globalAccruedRebate));
+        assertGeDecimal(wmul(vault.totalNormalDebt(), deltaRateAccumulator), deltaGlobalAccruedRebate, 15);
     }
     
     // - Invariant H: `rateAccumulator` at block x <= `rateAccumulator` at block y, if x < y and specifically if `rateAccumulator` was updated in between the blocks x and y
@@ -336,22 +341,19 @@ contract InvariantTestBase is TestBase {
         }
     }
 
-    // - Invariant I: sum of `rateAccumulator * normalDebt` across all positions = `rateAccumulator * totalNormalDebt` at any block x in which all positions (and their `rateAccumulator`) were updated
+    // - Invariant I: `snapshotRateAccumulator` <= `rateAccumulator` in a block where not all positions are updated
     function assert_invariant_IRM_I(CDPVault_TypeAWrapper vault, BaseHandler handler) public {
-        uint256 debtAccumulator;
         uint256 userCount = handler.count(USERS_CATEGORY);
+        (uint64 rateAccumulator, ,) = vault.virtualIRS(address(0));
+
         for (uint256 i = 0; i < userCount; ++i) {
             address user = handler.getActor(USERS_CATEGORY, i);
-            (, uint256 normalDebt) = vault.positions(user);
-            (uint64 rateAccumulator, , ) = vault.virtualIRS(user);
-            debtAccumulator += calculateDebt(normalDebt, rateAccumulator, 0);
+            CDPVault.PositionIRS memory positionIRS = vault.getPositionIRS(user);
+            assertGe(rateAccumulator, positionIRS.snapshotRateAccumulator);
         }
-
-        CDPVault.GlobalIRS memory globalIRS = vault.getGlobalIRS();
-        assertEq(wmul(globalIRS.rateAccumulator, vault.totalNormalDebt()), debtAccumulator);
     }
 
-    // - Invariant J: `snapshotRateAccumulator` is equal to `rateAccumulator` post all IRS updates
+    // - Invariant J: `snapshotRateAccumulator` == `rateAccumulator` in a block where all positions are updated
     function assert_invariant_IRM_J(CDPVault_TypeAWrapper vault, BaseHandler handler) public {
         uint256 userCount = handler.count(USERS_CATEGORY);
         (uint64 rateAccumulator, ,) = vault.virtualIRS(address(0));

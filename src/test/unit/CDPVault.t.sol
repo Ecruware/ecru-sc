@@ -336,6 +336,90 @@ contract CDPVaultTest is TestBase {
         assertEq(vault.enteredEmergencyMode(1.25 ether, 1 ether, 1 ether, uint64(WAD), 0), false);
     }
 
+    function test_createLimitOrder_updatesRebateFactor() public {
+        CDPVaultWrapper vault = _createVaultWrapper({
+            protocolFee: 0,
+            targetUtilizationRatio: 0,
+            minInterestRate: uint64(WAD),
+            maxInterestRate: uint64(1000000021919499726),
+            targetInterestRate: uint64(1000000015353288160),
+            maxRebate: uint128(WAD),
+            rebateRate: 0,
+            baseRate: uint256(uint64(BASE_RATE_1_025)),
+            liquidationRatio : 1.25 ether
+        });
+
+        vault.grantRole(TICK_MANAGER_ROLE, address(this));
+        vault.setParameter("limitOrderFloor", 10 ether);
+
+        // delegate credit
+        createCredit(address(this), 100 ether);
+        cdm.modifyPermission(address(vault), true);
+        vault.delegateCredit(100 ether);
+
+        // create position
+        token.mint(address(this), 100 ether);
+        token.approve(address(vault), 100 ether);
+        vault.deposit(address(this), 100 ether);
+        vault.modifyCollateralAndDebt(address(this), address(this), address(this), 100 ether, 80 ether);
+
+        // create limit order
+        vault.addLimitPriceTick(WAD, 0);
+        vault.createLimitOrder(WAD);
+
+        uint64 rebateFactor = vault.calculateRebateFactorForPriceTick(WAD);
+
+        // check limit order rebateFactor
+        assertEq(
+            vault.checkLimitOrder(address(this), 80 ether, rebateFactor),
+            rebateFactor
+        );
+    }
+
+    function test_cancelLimitOrder_resetsRebateFactor() public {
+        CDPVaultWrapper vault = _createVaultWrapper({
+            protocolFee: 0,
+            targetUtilizationRatio: 0,
+            minInterestRate: uint64(WAD),
+            maxInterestRate: uint64(1000000021919499726),
+            targetInterestRate: uint64(1000000015353288160),
+            maxRebate: uint128(WAD),
+            rebateRate: 0,
+            baseRate: uint256(uint64(BASE_RATE_1_025)),
+            liquidationRatio : 1.25 ether
+        });
+
+        vault.grantRole(TICK_MANAGER_ROLE, address(this));
+        vault.setParameter("limitOrderFloor", 10 ether);
+
+        // delegate credit
+        createCredit(address(this), 100 ether);
+        cdm.modifyPermission(address(vault), true);
+        vault.delegateCredit(100 ether);
+
+        // create position
+        token.mint(address(this), 100 ether);
+        token.approve(address(vault), 100 ether);
+        vault.deposit(address(this), 100 ether);
+        vault.modifyCollateralAndDebt(address(this), address(this), address(this), 100 ether, 80 ether);
+
+        // create limit order
+        vault.addLimitPriceTick(WAD, 0);
+        vault.createLimitOrder(WAD);
+
+        // check limit order rebateFactor
+        assertTrue(
+            vault.limitOrders(vault.deriveLimitOrderId(address(this))) != 0
+        );
+
+        vault.cancelLimitOrder();
+
+        assertEq(
+            vault.limitOrders(vault.deriveLimitOrderId(address(this))),
+            0
+        );
+    }
+
     function test_checkLimitOrder() public {
         CDPVaultWrapper vault = _createVaultWrapper({
             protocolFee: 0,
