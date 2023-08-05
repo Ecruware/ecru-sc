@@ -178,7 +178,7 @@ contract InvariantTestBase is TestBase {
 
         (uint64 rateAccumulator,,uint256 globalAccruedRebate) = vault.virtualIRS(address(0));
         uint256 totalDebt = calculateDebt(vault.totalNormalDebt(), rateAccumulator, globalAccruedRebate);
-        assertGe(totalDebt, totalPositionsDebt);
+        assertApproxGe(totalDebt, totalPositionsDebt, EPSILON);
     }
 
     // Invariant D: sum of `normalDebt * rateAccumulator - accruedRebate` (debt) across all positions <= `totalNormalDebt * rateAccumulator -  globalAccruedRebate` (totalDebt) - assuming some PositionIRS's are not up to date
@@ -291,7 +291,7 @@ contract InvariantTestBase is TestBase {
         }
 
         (, , uint256 globalAccruedRebate) = vault.virtualIRS(address(0));
-        assertGe(globalAccruedRebate, accruedRebateAccumulator);
+        assertApproxGe(globalAccruedRebate, accruedRebateAccumulator, EPSILON);
     }
 
     // - Invariant E: `averageRebate` <= `totalNormalDebt`
@@ -313,7 +313,7 @@ contract InvariantTestBase is TestBase {
             (bytes32 prevAccruedRebate, bytes32 accruedRebate) = handler.getTrackedValue(getValueKey(user, ACCRUED_REBATE));
             uint256 deltaAccruedRebate = (accruedRebate <= prevAccruedRebate)? 0 : uint256(accruedRebate) - uint256(prevAccruedRebate);
             assertEq(positionIRS.snapshotRateAccumulator, uint256(rateAccumulator));
-            assertGeDecimal(wmul(normalDebt, deltaRateAccumulator), deltaAccruedRebate, 15);
+            assertApproxGe(wmul(normalDebt, deltaRateAccumulator), deltaAccruedRebate, EPSILON);
         }
     }
 
@@ -327,7 +327,7 @@ contract InvariantTestBase is TestBase {
 
         assertEq(globalIRS.rateAccumulator, uint256(rateAccumulator));
         assertEq(globalIRS.globalAccruedRebate, uint256(globalAccruedRebate));
-        assertGeDecimal(wmul(vault.totalNormalDebt(), deltaRateAccumulator), deltaGlobalAccruedRebate, 15);
+        assertApproxGe(wmul(vault.totalNormalDebt(), deltaRateAccumulator), deltaGlobalAccruedRebate, EPSILON);
     }
     
     // - Invariant H: `rateAccumulator` at block x <= `rateAccumulator` at block y, if x < y and specifically if `rateAccumulator` was updated in between the blocks x and y
@@ -466,6 +466,16 @@ contract InvariantTestBase is TestBase {
     }
     
     /// ======== Helper Functions ======== ///
+
+    function assertApproxGe(uint256 a, uint256 b, uint256 epsilon) internal virtual {
+        if (a + epsilon < b) {
+            emit log("Error: a >= b not satisfied [uint]");
+            emit log_named_uint("      Left", a);
+            emit log_named_uint("     Right", b);
+            emit log_named_uint("   Epsilon", epsilon);
+            fail();
+        }
+    }
 
     function filterSenders() internal virtual {
         excludeSender(address(cdm));

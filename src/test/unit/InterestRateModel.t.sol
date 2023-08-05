@@ -120,8 +120,6 @@ contract InterestRateModelTest is Test {
     function _calculateGlobalAccruedRebate(
         InterestRateModel.GlobalIRS memory globalIRSBefore,
         uint64 rateAccumulatorAfter,
-        uint256 totalNormalDebtBefore,
-        uint256 totalNormalDebtAfter,
         uint128 claimedRebate
     ) private pure returns (uint256 globalAccruedRebate) {
         uint256 deltaGlobalAccruedRebate = wmul(globalIRSBefore.averageRebate, rateAccumulatorAfter) - 
@@ -140,7 +138,6 @@ contract InterestRateModelTest is Test {
         uint64 rebateFactorAfter,
         uint128 claimedRebate
     ) public view returns (InterestRateModel.GlobalIRS memory globalIRSAfter, uint256 accruedInterest) {
-        uint256 totalNormalDebtAfter = add(totalNormalDebtBefore, deltaNormalDebt);
         uint256 averageRebate = _calculateAverageRebate(
             globalIRSBefore.averageRebate,
             deltaNormalDebt,
@@ -153,8 +150,6 @@ contract InterestRateModelTest is Test {
         uint256 globalAccruedRebate = _calculateGlobalAccruedRebate(
             globalIRSBefore,
             rateAccumulatorAfter,
-            totalNormalDebtBefore,
-            totalNormalDebtAfter,
             claimedRebate
         );
 
@@ -180,8 +175,6 @@ contract InterestRateModelTest is Test {
     }
 
     function _validateGlobalIRS(CalculateGlobalParams memory params) private {
-        uint256 totalNormalDebtAfter = add(params.totalNormalDebtBefore, params.deltaNormalDebt);
-
         uint256 averageRebate = _calculateAverageRebate(
             params.globalIRSBefore.averageRebate,
             params.deltaNormalDebt,
@@ -193,8 +186,6 @@ contract InterestRateModelTest is Test {
         uint256 globalAccruedRebate =_calculateGlobalAccruedRebate(
             params.globalIRSBefore,
             params.rateAccumulatorAfter,
-            params.totalNormalDebtBefore,
-            totalNormalDebtAfter,
             params.claimedRebate
         );
 

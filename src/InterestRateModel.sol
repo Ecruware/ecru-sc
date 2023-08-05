@@ -151,9 +151,9 @@ abstract contract InterestRateModel {
         PositionIRS memory positionIRS, uint64 rateAccumulator, uint256 normalDebt
     ) internal pure returns(uint128 accruedRebate) {
         uint256 normalizedRebateFactor = wmul(positionIRS.rebateFactor, normalDebt);
-        accruedRebate = positionIRS.accruedRebate + uint128(wmul(
-            normalizedRebateFactor, rateAccumulator) - wmul(
-                normalizedRebateFactor, positionIRS.snapshotRateAccumulator)
+        accruedRebate = positionIRS.accruedRebate + 
+            uint128(wmul(normalizedRebateFactor, rateAccumulator) - 
+            wmul(normalizedRebateFactor, positionIRS.snapshotRateAccumulator)
         );
     }
 
@@ -208,7 +208,15 @@ abstract contract InterestRateModel {
         emit Log("globalIRSBefore.globalAccruedRebate", globalIRSBefore.globalAccruedRebate);
         emit Log("deltaGlobalAccruedRebate", deltaGlobalAccruedRebate);
         emit Log("claimedRebate", claimedRebate);
-        uint256 globalAccruedRebate = globalIRSBefore.globalAccruedRebate + deltaGlobalAccruedRebate - claimedRebate;
+        uint256 globalAccruedRebate = 0;
+
+        if (
+            totalNormalDebtAfter != 0 &&
+            claimedRebate <= globalIRSBefore.globalAccruedRebate + deltaGlobalAccruedRebate
+        ) {
+            globalAccruedRebate = globalIRSBefore.globalAccruedRebate + deltaGlobalAccruedRebate - claimedRebate;
+        }
+
         globalIRSAfter = GlobalIRS({
             baseRate: globalIRSBefore.baseRate,
             globalAccruedRebate: globalAccruedRebate,
