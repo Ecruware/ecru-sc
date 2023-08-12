@@ -139,13 +139,15 @@ async function deployProxy(name, implementationArgs, proxyArgs) {
 }
 
 async function deployPRBProxy(prbProxyRegistry) {
-  await prbProxyRegistry.deploy();
-  const proxy = (await ethers.getContractFactory('PRBProxy')).attach(
-    await prbProxyRegistry.proxies(await getSignerAddress())
-  );
-  console.log(`PRBProxy deployed to: ${proxy.address}`);
-  await verifyOnTenderly('PRBProxy', proxy.address);
-  await storeContractDeployment(false, 'PRBProxy', proxy.address, 'PRBProxy');
+  const signer = await getSignerAddress();
+  let proxy = (await ethers.getContractFactory('PRBProxy')).attach(await prbProxyRegistry.getProxy(signer));
+  if (proxy.address == ethers.constants.AddressZero) {
+    await prbProxyRegistry.deploy();
+    proxy = (await ethers.getContractFactory('PRBProxy')).attach(await prbProxyRegistry.getProxy(signer));
+    console.log(`PRBProxy deployed to: ${proxy.address}`);
+    await verifyOnTenderly('PRBProxy', proxy.address);
+    await storeContractDeployment(false, 'PRBProxy', proxy.address, 'PRBProxy');
+  }
   return proxy;
 }
 
@@ -199,6 +201,9 @@ async function deployCore() {
 
   await cdm.grantRole(ethers.utils.keccak256(ethers.utils.toUtf8Bytes("ACCOUNT_CONFIG_ROLE")), cdpVaultTypeAFactory.address);
   console.log('Granted ACCOUNT_CONFIG_ROLE to CDPVault_TypeA_Factory');
+
+  await cdm["setParameter(address,bytes32,uint256)"](flashlender.address, toBytes32("debtCeiling"), CONFIG.Core.Flashlender.initialDebtCeiling);
+  console.log('Set debtCeiling to', fromWad(CONFIG.Core.Flashlender.initialDebtCeiling), 'Credit for Flashlender');
 
   console.log('------------------------------------');
 }
@@ -316,10 +321,67 @@ async function logVaults() {
   }
 }
 
+async function createPositions() {
+  const { CDM: cdm, PositionAction20: positionAction } = await loadDeployedContracts();
+  const prbProxyRegistry = await attachContract('PRBProxyRegistry', CONFIG.Core.PRBProxyRegistry);
+
+  const signer = await getSignerAddress();
+  const proxy = await deployPRBProxy(prbProxyRegistry);
+
+  // anvil or tenderly
+  try {
+    const ethPot = await ethers.getImpersonatedSigner('0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2');
+    await ethPot.sendTransaction({ to: signer, value: toWad('10') });
+  } catch {
+    const ethPot = (new ethers.providers.JsonRpcProvider(process.env.TENDERLY_FORK_URL)).getSigner('0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2');
+    await ethPot.sendTransaction({ to: signer, value: toWad('10') });
+  }
+  console.log('Sent 10 ETH to', signer);
+
+  for (const [name, vault] of Object.entries(await loadDeployedVaults())) {
+    let token = await attachContract('ERC20PresetMinterPauser', await vault.token());
+    const config = Object.values(CONFIG.Vaults).find((v) => v.token.toLowerCase() == token.address.toLowerCase());
+    console.log(`${name}: ${vault.address}`);
+
+    const amountInWad = config.deploymentArguments.configs.debtFloor.mul('5').add(toWad('1'));
+    const amount = amountInWad.mul(await vault.tokenScale()).div(toWad('1'));
+    await token.approve(proxy.address, amount);
+
+    // anvil or tenderly
+    try {
+      token = token.connect(await ethers.getImpersonatedSigner(config.tokenPot));
+      await token.transfer(signer, amount);
+    } catch {
+      token = token.connect((new ethers.providers.JsonRpcProvider(process.env.TENDERLY_FORK_URL)).getSigner(config.tokenPot));
+      await token.transfer(signer, amount);
+    }
+    console.log('Sent', fromWad(amountInWad), await token.symbol(), 'signer');
+
+    await proxy.execute(
+      positionAction.address,
+      positionAction.interface.encodeFunctionData(
+        'depositAndBorrow',
+        [
+          proxy.address,
+          vault.address,
+          [token.address, amount, signer, [0, 0, ethers.constants.AddressZero, 0, 0, ethers.constants.AddressZero, 0, ethers.constants.HashZero]],
+          [config.deploymentArguments.configs.debtFloor, signer, [0, 0, ethers.constants.AddressZero, 0, 0, ethers.constants.AddressZero, 0, ethers.constants.HashZero]],
+          [0, 0, 0, 0, 0, ethers.constants.HashZero, ethers.constants.HashZero]
+      ]
+      ),
+      { gasLimit: 2000000 }
+    );
+    
+    const position = await vault.positions(proxy.address);
+    console.log('Borrowed', fromWad(position.normalDebt), 'Credit against', fromWad(position.collateral), await token.symbol());
+  }
+}
+
 ((async () => {
   await deployCore();
   await deployVaults();
   // await logVaults();
+  // await createPositions();
 })()).catch((error) => {
   console.error(error);
   process.exitCode = 1;
