@@ -84,28 +84,6 @@ abstract contract CDPVault is AccessControl, Pause, Permission, InterestRateMode
     /// @notice Portion of interest that goes to the protocol [wad]
     uint256 public immutable protocolFee;
 
-    // Epoch Constants
-    /// @notice Number of seconds in an epoch [seconds]
-    uint256 public constant EPOCH_DURATION = 3 days;
-    /// @notice Number of epochs that have to pass until an epoch claim can be fixed
-    uint256 public constant EPOCH_FIX_DELAY = 1;
-    /// @notice Number of epochs for which an epoch claim can be fixed
-    uint256 public constant EPOCH_FIX_TIMEOUT = 3;
-    
-    /// @notice Utilization Rate Parameters
-    /// @dev The utilizationParams field contains packed utilization rate parameters.
-    /// - targetUtilizationRatio: Targeted utilization ratio [0-1) [wad] [uint64]
-    /// - maxUtilizationRatio: Maximum utilization ratio [0-1] [wad] [uint64]
-    /// - minInterestRate: Minimum allowed interest rate [wad] [uint40]
-    /// - maxInterestRate: Maximum allowed interest rate [wad] [uint40]
-    /// - targetInterestRate: Targeted interest rate [wad] [uint40]
-    ///
-    /// Interest rate fields are packed as uint40 values to fit within the utilizationParams field.
-    /// Each interest rate field represents an annual per-second value between [1, RATE_CEILING]
-    /// as declared in the InterestRateModel. To accommodate this range, an offset of 1 is applied
-    /// when packing the fields. When unpacking, the offset needs to be reversed to obtain the original values.
-    uint256 internal immutable utilizationParams;
-
     /// @notice Rebate Parameters
     /// @dev Contains the following parameters evenly packed into a uint256:
     ///   - rebateRate:  Price tick to rebate factor conversion bias [wad]
@@ -191,11 +169,9 @@ abstract contract CDPVault is AccessControl, Pause, Permission, InterestRateMode
     //////////////////////////////////////////////////////////////*/
 
     error CDPVault__checkEmergencyMode_entered();
-    error CDPVault__calculateAssetsAndLiabilities_insufficientAssets();
     error CDPVault__modifyPosition_debtFloor();
     error CDPVault__modifyCollateralAndDebt_notSafe();
     error CDPVault__modifyCollateralAndDebt_noPermission();
-    error CDPVault__modifyCollateralAndDebt_maxUtilizationRatio();
     error CDPVault__addLimitPriceTick_limitPriceTickOutOfRange();
     error CDPVault__addLimitPriceTick_invalidPriceTickOrder();
     error CDPVault__createLimitOrder_limitPriceTickNotActive();
@@ -216,7 +192,7 @@ abstract contract CDPVault is AccessControl, Pause, Permission, InterestRateMode
             token,
             tokenScale,
             protocolFee,
-            utilizationParams,
+            ,
             rebateParams,
         ) = ICDPVault_TypeA_Factory(factory).getConstants();
     }
@@ -283,49 +259,6 @@ abstract contract CDPVault is AccessControl, Pause, Permission, InterestRateMode
     }
 
     /*//////////////////////////////////////////////////////////////
-                           CREDIT DELEGATION
-    //////////////////////////////////////////////////////////////*/
-
-    /// @notice Computes the current epoch based on the block.timestamp and the duration of an epoch
-    /// @return currentEpoch Current epoch
-    function getCurrentEpoch() public view returns (uint256 currentEpoch) {
-        unchecked { currentEpoch = (block.timestamp - (block.timestamp % EPOCH_DURATION)) / EPOCH_DURATION; }
-    }
-
-    /// @notice Calculates the amount of assets (credit + outstanding debt incl. interest)
-    /// and liabilities (debt + protocol fee) this vault has
-    function _calculateAssetsAndLiabilities(uint256 totalNonFixedCreditWithheld) internal returns (
-        uint256 assets, uint256 liabilities, uint256 credit, uint256 creditLine
-    ) {
-        (int256 balance, uint256 debtCeiling) = cdm.accounts(address(this));
-        credit = getCredit(balance);
-        creditLine = getCreditLine(balance, debtCeiling);
-
-        // update the global rate accumulator
-        GlobalIRS memory globalIRS = getGlobalIRS();
-        uint256 totalNormalDebt_ = totalNormalDebt;
-
-        uint256 accruedInterest;
-        (globalIRS, accruedInterest) = _calculateGlobalIRS(
-            globalIRS, _calculateRateAccumulator(globalIRS, totalNormalDebt_), totalNormalDebt_, 0, 0, 0, 0, 0
-        );
-
-        uint256 totalAccruedFees_ = _checkForEmergencyModeAndStoreGlobalIRSAndCollectFees(
-            globalIRS, accruedInterest, totalNormalDebt_, spotPrice(), vaultConfig.globalLiquidationRatio
-        );
-
-        // liquid credit reserves + total amount of credit we expect to be returned by borrowers
-        assets = credit + totalNonFixedCreditWithheld + calculateDebt(
-            totalNormalDebt_, globalIRS.rateAccumulator, globalIRS.globalAccruedRebate
-        );
-        // amount of credit used, extended to the vault by the CDM
-        // + amount of accrued fees that belongs to the protocol (not the delegators)
-        liabilities = getDebt(balance) + totalAccruedFees_;
-        // check if vault is insolvent (more liabilities than assets) 
-        if (assets < liabilities) revert CDPVault__calculateAssetsAndLiabilities_insufficientAssets();
-    }
-
-    /*//////////////////////////////////////////////////////////////
                       CASH BALANCE ADMINISTRATION
     //////////////////////////////////////////////////////////////*/
 
@@ -354,58 +287,6 @@ abstract contract CDPVault is AccessControl, Pause, Permission, InterestRateMode
                           INTEREST COLLECTION
     //////////////////////////////////////////////////////////////*/
 
-    function _calculateUtilizationRatio(
-        GlobalIRS memory globalIRS, uint256 totalNormalDebt_
-    ) internal view returns (uint256 utilizationRatio) {
-        uint256 totalDebt_ = calculateDebt(totalNormalDebt_, globalIRS.rateAccumulator, globalIRS.globalAccruedRebate);
-        utilizationRatio = (totalDebt_ == 0)
-            ? 0 : wdiv(totalDebt_, totalDebt_ + cdm.creditLine(address(this)) - totalAccruedFees);
-    }
-
-    /// @notice Calculates the global rate accumulator based on the current global interest rate state
-    function _calculateRateAccumulator(
-        GlobalIRS memory globalIRS, uint256 totalNormalDebt_
-    ) internal view returns (uint64) {
-        uint64 interestRate;
-        if(globalIRS.baseRate < 0){
-            // unpack the utilizationParams
-            uint256 targetUtilizationRatio = uint64(utilizationParams);
-            uint256 maxUtilizationRatio = uint64(utilizationParams >> 64);
-            uint256 minInterestRate = uint40(utilizationParams >> 128);
-            uint256 maxInterestRate = uint40(utilizationParams >> 168);
-            uint256 targetInterestRate = uint40(utilizationParams >> 208);
-            // add 1 to the rates since they are encoded as percentages
-            unchecked {
-                minInterestRate += WAD;
-                targetInterestRate += WAD;
-                maxInterestRate += WAD;
-            }
-
-            // derive interest rate from utilization
-            uint256 utilizationRatio = _calculateUtilizationRatio(globalIRS, totalNormalDebt_);
-            if(utilizationRatio > maxUtilizationRatio) utilizationRatio = maxUtilizationRatio;
-
-            // if utilization is below the optimal utilization ratio,
-            // the interest rate is scaled linearly between the minimum and target base rate
-            if (utilizationRatio <= targetUtilizationRatio){
-                interestRate = uint64(minInterestRate + wmul(
-                    wdiv(targetInterestRate - minInterestRate, targetUtilizationRatio),
-                    utilizationRatio
-                ));
-            // if utilization is above the optimal utilization ratio,
-            // the interest rate is scaled linearly between the target and maximum base rate
-            } else {
-                interestRate = uint64(targetInterestRate + wmul(
-                    wdiv(maxInterestRate - targetInterestRate, WAD - targetUtilizationRatio), 
-                    utilizationRatio - targetUtilizationRatio
-                ));
-            }
-        } else {
-            interestRate = uint64(globalIRS.baseRate);
-        }
-        return super._calculateRateAccumulator(globalIRS, interestRate);
-    }
-
     /// @notice Account for the accrued protocol fees
     function _collectFees(uint256 accruedInterest) internal whenNotPaused returns (uint256) {
         return totalAccruedFees += wmul(accruedInterest, protocolFee);
@@ -421,7 +302,7 @@ abstract contract CDPVault is AccessControl, Pause, Permission, InterestRateMode
     ) {
         GlobalIRS memory globalIRS = getGlobalIRS();
         uint256 totalNormalDebt_ = totalNormalDebt;
-        rateAccumulator = _calculateRateAccumulator(globalIRS, totalNormalDebt_);
+        rateAccumulator = _calculateRateAccumulator(globalIRS, uint64(globalIRS.baseRate));
         (globalIRS, ) = _calculateGlobalIRS(globalIRS, rateAccumulator, totalNormalDebt_, 0, 0, 0, 0, 0);
         globalAccruedRebate = globalIRS.globalAccruedRebate;
         if (position != address(0)){
@@ -498,7 +379,7 @@ abstract contract CDPVault is AccessControl, Pause, Permission, InterestRateMode
     ///   1. check if the vault entered emergency mode
     ///   2. store the new global interest rate state
     ///   3. collect any protocol fees
-    /// This method is called by `_updateLimitOrderAndIRS`, `_calculateAssetsAndLiabilities`,`exchange`
+    /// This method is called by `_updateLimitOrderAndIRS`, `exchange`
     /// and `liquidatePositions`
     function _checkForEmergencyModeAndStoreGlobalIRSAndCollectFees(
         GlobalIRS memory globalIRS,
@@ -549,7 +430,7 @@ abstract contract CDPVault is AccessControl, Pause, Permission, InterestRateMode
         // calculate the position's new interest rate state by calculating the new rate accumulator, 
         // and the updated accrued rebate by deducting the current rebate claim (if delta normal debt is negative)
         {
-        uint64 rateAccumulator = _calculateRateAccumulator(globalIRS, totalNormalDebtBefore);        
+        uint64 rateAccumulator = _calculateRateAccumulator(globalIRS, uint64(globalIRS.baseRate));        
         positionIRS.accruedRebate = _calculateAccruedRebate(positionIRS, rateAccumulator, normalDebtBefore);
         positionIRS.snapshotRateAccumulator = rateAccumulator;
         }
@@ -681,15 +562,6 @@ abstract contract CDPVault is AccessControl, Pause, Permission, InterestRateMode
         } else if (deltaDebt < 0) {
             cdm.modifyBalance(creditor, address(this), uint256(-deltaDebt));
         }
-
-        // check max utilization ratio
-        if(deltaNormalDebt > 0) {
-            uint256 utilizationRatio = _calculateUtilizationRatio(globalIRS, totalNormalDebt_);
-            uint256 maxUtilizationRatio = uint64(utilizationParams >> 64);
-            if(utilizationRatio > maxUtilizationRatio) {
-                revert CDPVault__modifyCollateralAndDebt_maxUtilizationRatio();
-            }
-        } 
 
         emit ModifyCollateralAndDebt(owner, collateralizer, creditor, deltaCollateral, deltaNormalDebt);
     }
@@ -987,7 +859,7 @@ abstract contract CDPVault is AccessControl, Pause, Permission, InterestRateMode
         cache.debtFloor = vaultConfig_.debtFloor;
         cache.settlementPenalty = WAD;
 
-        uint64 rateAccumulator = _calculateRateAccumulator(globalIRS, cache.totalNormalDebt);
+        uint64 rateAccumulator = _calculateRateAccumulator(globalIRS, uint64(globalIRS.baseRate));
 
         // get the lowest price tick (head to of the linked list)
         uint256 limitPriceTick = _limitPriceTicks.getHead();
