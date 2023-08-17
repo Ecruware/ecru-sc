@@ -12,7 +12,7 @@ import {IPermission} from "./IPermission.sol";
 import {IInterestRateModel} from "./IInterestRateModel.sol";
 
 /// @title ICDPVaultBase
-/// @notice Interface for the CDPVault without `paused` to avoid unnecessary overrinding of `paused` in CDPVault
+/// @notice Interface for the CDPVault without `paused` to avoid unnecessary overriding of `paused` in CDPVault
 interface ICDPVaultBase is IAccessControl, IPause, IPermission {
 
     function cdm() external view returns (ICDM);

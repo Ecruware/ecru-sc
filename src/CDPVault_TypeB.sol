@@ -9,7 +9,6 @@ import {IBuffer} from "./interfaces/IBuffer.sol";
 import {ICDM} from "./interfaces/ICDM.sol";
 import {ICDPVaultBase} from "./interfaces/ICDPVault.sol";
 import {IOracle} from "./interfaces/IOracle.sol";
-import {ICDPVault_TypeA_Factory} from "./interfaces/ICDPVault_TypeA_Factory.sol";
 
 import {WAD, toInt256, toUint64, max, min, add, sub, wmul, wdiv, wmulUp} from "./utils/Math.sol";
 import {DoubleLinkedList} from "./utils/DoubleLinkedList.sol";
@@ -57,7 +56,7 @@ function calculateNormalDebt(
 
 /// @title CDPVault
 /// @notice Base logic of a CDP-style vault for depositing collateral and drawing credit against it
-abstract contract CDPVault is AccessControl, Pause, Permission, InterestRateModel, ICDPVaultBase {
+contract CDPVault_TypeB is AccessControl, Pause, Permission, InterestRateModel {
 
     /*//////////////////////////////////////////////////////////////
                                LIBRARIES
@@ -184,17 +183,22 @@ abstract contract CDPVault is AccessControl, Pause, Permission, InterestRateMode
                              INITIALIZATION
     //////////////////////////////////////////////////////////////*/
 
-    constructor(address factory) {
-        (
-            cdm,
-            oracle,
-            buffer,
-            token,
-            tokenScale,
-            protocolFee,
-            ,
-            rebateParams,
-        ) = ICDPVault_TypeA_Factory(factory).getConstants();
+    constructor(
+        ICDM cdm_,
+        IOracle oracle_,
+        IBuffer buffer_,
+        IERC20 token_,
+        uint256 tokenScale_,
+        uint256 protocolFee_,
+        uint256 rebateParams_
+    ) {
+        cdm = cdm_;
+        oracle = oracle_;
+        buffer = buffer_;
+        token = token_;
+        tokenScale = tokenScale_;
+        protocolFee = protocolFee_;
+        rebateParams = rebateParams_;
     }
 
     function setUp(address unwinderFactory) public virtual {
@@ -297,7 +301,7 @@ abstract contract CDPVault is AccessControl, Pause, Permission, InterestRateMode
     /// @return rateAccumulator Current global rate accumulator [wad]
     /// @return accruedRebate The accrued rebate of a position [wad]
     /// @return globalAccruedRebate The global accrued rebate [wad]
-    function virtualIRS(address position) public view override returns (
+    function virtualIRS(address position) public view returns (
         uint64 rateAccumulator, uint256 accruedRebate, uint256 globalAccruedRebate
     ) {
         GlobalIRS memory globalIRS = getGlobalIRS();
