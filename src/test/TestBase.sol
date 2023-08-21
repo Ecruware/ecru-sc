@@ -219,7 +219,6 @@ contract TestBase is Test {
     }
 
     function createCredit(address to, uint256 amount) public {
-        
         cdm.modifyBalance(address(creditCreator), to, amount);
     }
 
