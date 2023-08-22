@@ -34,8 +34,6 @@ contract CDPVault_TypeA_Factory is ICDPVault_TypeA_Factory, AccessControl, Pause
 
     /// @notice Deployer contract responsible for housing CDPVault_TypeA bytecode
     ICDPVault_TypeA_Deployer public immutable deployer;
-    /// @notice Vault Unwinder Factory contract
-    address public immutable unwinderFactory;
 
     /*//////////////////////////////////////////////////////////////
                                  EVENTS
@@ -49,13 +47,11 @@ contract CDPVault_TypeA_Factory is ICDPVault_TypeA_Factory, AccessControl, Pause
 
     constructor(
         ICDPVault_TypeA_Deployer deployer_,
-        address unwinderFactory_,
         address roleAdmin,
         address deployerAdmin,
         address pauseAdmin
     ) {
         deployer = deployer_;
-        unwinderFactory = unwinderFactory_;
         _grantRole(DEFAULT_ADMIN_ROLE, roleAdmin);
         _grantRole(DEPLOYER_ROLE, deployerAdmin);
         _grantRole(PAUSER_ROLE, pauseAdmin);
@@ -74,7 +70,7 @@ contract CDPVault_TypeA_Factory is ICDPVault_TypeA_Factory, AccessControl, Pause
         constants = cdpVaultConstants;
 
         CDPVault_TypeA vault = CDPVault_TypeA(deployer.deploy());
-        vault.setUp(unwinderFactory);
+        vault.setUp();
 
         delete constants;
 
@@ -93,7 +89,6 @@ contract CDPVault_TypeA_Factory is ICDPVault_TypeA_Factory, AccessControl, Pause
         // set roles
         vault.grantRole(VAULT_CONFIG_ROLE, cdpVaultConfig.vaultAdmin);
         vault.grantRole(TICK_MANAGER_ROLE, cdpVaultConfig.tickManager);
-        vault.grantRole(VAULT_UNWINDER_ROLE, cdpVaultConfig.vaultUnwinder);
         vault.grantRole(PAUSER_ROLE, cdpVaultConfig.pauseAdmin);
         vault.grantRole(DEFAULT_ADMIN_ROLE, cdpVaultConfig.roleAdmin);
 
@@ -112,7 +107,7 @@ contract CDPVault_TypeA_Factory is ICDPVault_TypeA_Factory, AccessControl, Pause
         return address(vault);
     }
 
-    function getConstants() external returns (
+    function getConstants() external view returns (
         ICDM cdm,
         IOracle oracle,
         IBuffer buffer,
@@ -120,8 +115,7 @@ contract CDPVault_TypeA_Factory is ICDPVault_TypeA_Factory, AccessControl, Pause
         uint256 tokenScale,
         uint256 protocolFee,
         uint256 utilizationParams,
-        uint256 rebateParams,
-        address withholder
+        uint256 rebateParams
     ) {
         cdm = constants.cdm;
         oracle = constants.oracle;
@@ -136,7 +130,6 @@ contract CDPVault_TypeA_Factory is ICDPVault_TypeA_Factory, AccessControl, Pause
             | (uint256(constants.maxInterestRate - WAD) << 168)
             | (uint256(constants.targetInterestRate - WAD) << 208);
         rebateParams = uint256(constants.rebateRate) | (uint256(constants.maxRebate) << 128);
-        withholder = address(new CreditWithholder(constants.cdm, address(unwinderFactory), msg.sender));
     }
 }
 

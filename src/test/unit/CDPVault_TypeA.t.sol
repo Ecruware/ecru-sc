@@ -383,9 +383,7 @@ contract CDPVault_TypeATest is TestBase {
         CDPVault_TypeA vault = createCDPVault_TypeA(token, 0, 0, 1.25 ether, 1 ether, 1 ether, 1.05 ether, 0, WAD, WAD, 0, 0);
         buffer.revokeRole(keccak256("BAIL_OUT_QUALIFIER_ROLE"), address(vault));
 
-        // delegate 150 credit to CDPVault_TypeA
-        createCredit(address(this), 150 ether);
-        vault.delegateCredit(150 ether);
+        cdm.setParameter(address(vault), "debtCeiling", 150 ether);
 
         // create position
         _depositCash(vault, 100 ether);

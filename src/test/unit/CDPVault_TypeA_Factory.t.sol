@@ -63,7 +63,6 @@ contract CDPVault_TypeA_FactoryTest is TestBase {
         deployer = new CDPVault_TypeA_Deployer();
         factory = new CDPVault_TypeA_Factory(
             deployer,
-            address(unwinderFactory),
             factoryRoleAdmin,
             deployerAdmin,
             pauserAdmin
@@ -165,7 +164,6 @@ contract CDPVault_TypeA_FactoryTest is TestBase {
                     roleAdmin: roleAdmin,
                     vaultAdmin: vaultAdmin,
                     tickManager: tickManager,
-                    vaultUnwinder: vaultUnwinder,
                     pauseAdmin: pauseAdmin
                 }),
                 100 ether
@@ -215,7 +213,6 @@ contract CDPVault_TypeA_FactoryTest is TestBase {
                 roleAdmin: roleAdmin,
                 vaultAdmin: vaultAdmin,
                 tickManager: tickManager,
-                vaultUnwinder: vaultUnwinder,
                 pauseAdmin: pauseAdmin
             }),
             100 ether
@@ -254,7 +251,6 @@ contract CDPVault_TypeA_FactoryTest is TestBase {
                     roleAdmin: roleAdmin,
                     vaultAdmin: vaultAdmin,
                     tickManager: tickManager,
-                    vaultUnwinder: vaultUnwinder,
                     pauseAdmin: pauseAdmin
                 }),
                 0

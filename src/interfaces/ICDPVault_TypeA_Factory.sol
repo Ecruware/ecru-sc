@@ -33,7 +33,6 @@ struct CDPVaultConfig {
     address roleAdmin;
     address vaultAdmin;
     address tickManager;
-    address vaultUnwinder;
     address pauseAdmin;
 }
 
@@ -59,9 +58,6 @@ interface ICDPVault_TypeA_Factory {
         uint256 tokenScale,
         uint256 protocolFee,
         uint256 utilizationParams,
-        uint256 rebateParams,
-        address withholder
+        uint256 rebateParams
     );
-
-    function unwinderFactory() external returns (address);
 }

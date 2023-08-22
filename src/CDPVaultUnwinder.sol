@@ -6,7 +6,7 @@ import {SafeERC20} from "openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol"
 
 import {ICDPVaultUnwinderFactory} from "./interfaces/ICDPVaultUnwinderFactory.sol";
 import {ICDPVaultUnwinder} from "./interfaces/ICDPVaultUnwinder.sol";
-import {ICDPVault} from "./interfaces/ICDPVault.sol";
+import {ICDPVault_TypeB} from "./interfaces/ICDPVault_TypeB.sol";
 import {ICDM} from "./interfaces/ICDM.sol";
 import {IOracle} from "./interfaces/IOracle.sol";
 
@@ -28,7 +28,7 @@ contract CDPVaultUnwinderFactory is ICDPVaultUnwinderFactory {
                                 STORAGE
     //////////////////////////////////////////////////////////////*/
 
-    mapping(ICDPVault vault => ICDPVaultUnwinder unwinder) public unwinders;
+    mapping(ICDPVault_TypeB vault => ICDPVaultUnwinder unwinder) public unwinders;
 
     /*//////////////////////////////////////////////////////////////
                                  EVENTS
@@ -50,7 +50,7 @@ contract CDPVaultUnwinderFactory is ICDPVaultUnwinderFactory {
     /// @notice Initiates the unwinding of a vault by deploying a CDPVaultUnwinder and transferring all the collateral,
     /// and credit from the vault to the unwinder
     /// @dev the CDPVaultUnwinderFactory has to have the VAULT_UNWIND_ROLE of the vault to unwind
-    function deployVaultUnwinder(ICDPVault vault) external returns (ICDPVaultUnwinder unwinder) {
+    function deployVaultUnwinder(ICDPVault_TypeB vault) external returns (ICDPVaultUnwinder unwinder) {
         if (unwinders[vault] != ICDPVaultUnwinder(address(0)))
             revert CDPVaultUnwinderFactory__deployVaultUnwinder__alreadyDeployed();
 
@@ -61,7 +61,7 @@ contract CDPVaultUnwinderFactory is ICDPVaultUnwinderFactory {
         // create unwinder
         IERC20 token = vault.token();
         ICDM cdm = vault.cdm();
-        unwinder = new CDPVaultUnwinder(ICDPVault(vault), token, cdm);
+        unwinder = new CDPVaultUnwinder(ICDPVault_TypeB(vault), token, cdm);
         unwinders[vault] = unwinder;
 
         // transfer collateral and credit to unwinder
@@ -98,7 +98,7 @@ contract CDPVaultUnwinder is ICDPVaultUnwinder {
     uint256 public constant AUCTION_DURATION = 1.5 days;
 
     /// @notice The vault to unwind
-    ICDPVault public immutable vault;
+    ICDPVault_TypeB public immutable vault;
     /// @notice The CDM used by the vault
     ICDM public immutable cdm;
     /// @notice The token of the vault
@@ -195,7 +195,7 @@ contract CDPVaultUnwinder is ICDPVaultUnwinder {
                              INITIALIZATION
     //////////////////////////////////////////////////////////////*/
 
-    constructor(ICDPVault vault_, IERC20 token_, ICDM cdm_) {
+    constructor(ICDPVault_TypeB vault_, IERC20 token_, ICDM cdm_) {
         createdAt = block.timestamp;
         vault = vault_;
         cdm = cdm_;

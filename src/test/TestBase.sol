@@ -109,7 +109,6 @@ contract TestBase is Test {
         cdpVaultUnwinderFactory = new CDPVaultUnwinderFactory();
         cdpVaultFactory = new CDPVault_TypeA_Factory(
             new CDPVault_TypeA_Deployer(),
-            address(cdpVaultUnwinderFactory),
             address(this),
             address(this),
             address(this)
@@ -162,7 +161,6 @@ contract TestBase is Test {
                 roleAdmin: address(this),
                 vaultAdmin: address(this),
                 tickManager: address(this),
-                vaultUnwinder: address(this),
                 pauseAdmin: address(this)
             }),
             debtCeiling
@@ -292,7 +290,6 @@ contract TestBase is Test {
             roleAdmin: address(this),
             vaultAdmin: address(this),
             tickManager: address(this),
-            vaultUnwinder: address(this),
             pauseAdmin: address(this)
         });
     }

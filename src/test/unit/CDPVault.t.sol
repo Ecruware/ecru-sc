@@ -51,12 +51,6 @@ contract CDPVaultWrapper is CDPVault_TypeA {
         return _checkLimitOrder(limitOrderId, priceTick, normalDebt, currentRebateFactor);
     }
 
-    function calculateAssetsAndLiabilities(uint256 totalCreditWithheld) public returns (
-        uint256 assets, uint256 liabilities, uint256 credit, uint256 creditLine
-    ) {
-        return _calculateAssetsAndLiabilities(totalCreditWithheld);
-    }
-
     function calculateRateAccumulator(GlobalIRS memory globalIRS) public view returns(uint64) {
         return _calculateRateAccumulator(globalIRS, totalNormalDebt);
     }
@@ -75,8 +69,6 @@ contract VaultWrapperFactory {
     uint256 private utilizationParams;
     uint256 private rebateParams;
     uint256 private tokenScale;
-    address private creditWithholder;
-    address private unwinderFactory;
     uint256 private maxUtilizationRatio;
 
     struct Params{
@@ -84,7 +76,6 @@ contract VaultWrapperFactory {
         IOracle oracle;
         IBuffer buffer;
         IERC20 token;
-        address unwinderFactory;
         uint256 protocolFee;
         uint64 targetUtilizationRatio;
         uint64 maxUtilizationRatio;
@@ -105,9 +96,6 @@ contract VaultWrapperFactory {
         tokenScale = IERC20Metadata(address(params.token)).decimals();
         protocolFee = params.protocolFee;
 
-        unwinderFactory = params.unwinderFactory;
-        creditWithholder = address(new CreditWithholder(cdm, address(params.unwinderFactory), msg.sender));
-
         utilizationParams =
             uint256(params.targetUtilizationRatio) | (uint256(params.maxUtilizationRatio) << 64) | (uint256(params.minInterestRate - WAD) << 128) |
             (uint256(params.maxInterestRate - WAD) << 168) | (uint256(params.targetInterestRate - WAD) << 208);
@@ -125,7 +113,6 @@ contract VaultWrapperFactory {
         uint256 protocolFee_,
         uint256 utilizationParams_,
         uint256 rebateParams_,
-        address withholder_,
         uint256 maxUtilizationRatio_
     ) {
         return (
@@ -137,14 +124,12 @@ contract VaultWrapperFactory {
             protocolFee,
             utilizationParams,
             rebateParams, 
-            address(creditWithholder),
             maxUtilizationRatio
         );
     }
 
     function create() external returns(CDPVaultWrapper vault) {
         vault = new CDPVaultWrapper(address(this));
-        vault.setUp(unwinderFactory);
 
         vault.grantRole(vault.DEFAULT_ADMIN_ROLE(), msg.sender);
     }
@@ -154,32 +139,6 @@ contract PositionOwner {
     constructor(IPermission vault) {
         // Allow deployer to modify Position
         vault.modifyPermission(msg.sender, true);
-    }
-}
-
-contract CreditDelegator {
-
-    ICDM internal cdm;
-
-    constructor(ICDM cdm_) {
-        cdm = cdm_;
-    }
-
-    function delegateCredit(ICDPVaultBase vault, uint256 creditAmount) public {
-        cdm.modifyPermission(address(vault), true);
-        vault.delegateCredit(creditAmount);
-    }
-
-    function undelegateCredit(
-        ICDPVaultBase vault, uint256 shareAmount, uint256[] memory prevQueuedEpochs
-    ) external returns (
-        uint256 estimatedClaim, uint256 currentEpoch, uint256 claimableAtEpoch, uint256 fixableUntilEpoch
-    ) {
-        return vault.undelegateCredit(shareAmount, prevQueuedEpochs);
-    }
-
-    function claimUndelegatedCredit(ICDPVaultBase vault, uint256 epoch) public returns (uint256) {
-        return vault.claimUndelegatedCredit(epoch);
     }
 }
 
@@ -254,7 +213,6 @@ contract CDPVaultTest is TestBase {
             oracle: oracle,
             buffer: buffer,
             token: token,
-            unwinderFactory: address(cdpVaultUnwinderFactory),
             protocolFee: protocolFee,
             targetUtilizationRatio: targetUtilizationRatio,
             maxUtilizationRatio: uint64(WAD),
@@ -270,6 +228,10 @@ contract CDPVaultTest is TestBase {
 
         vault.setParameter("baseRate", baseRate);
         vault.setParameter("liquidationRatio", liquidationRatio);
+    }
+
+    function _setDebtCeiling(CDPVault vault, uint256 debtCeiling) internal {
+        cdm.setParameter(address(vault), "debtCeiling", debtCeiling);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -352,10 +314,7 @@ contract CDPVaultTest is TestBase {
         vault.grantRole(TICK_MANAGER_ROLE, address(this));
         vault.setParameter("limitOrderFloor", 10 ether);
 
-        // delegate credit
-        createCredit(address(this), 100 ether);
-        cdm.modifyPermission(address(vault), true);
-        vault.delegateCredit(100 ether);
+        _setDebtCeiling(vault, 100 ether);
 
         // create position
         token.mint(address(this), 100 ether);
@@ -398,11 +357,8 @@ contract CDPVaultTest is TestBase {
         vault.grantRole(TICK_MANAGER_ROLE, address(this));
         vault.setParameter("limitOrderFloor", 30 ether);
 
-        // delegate credit
-        createCredit(address(this), 100 ether);
-        cdm.modifyPermission(address(vault), true);
-        vault.delegateCredit(100 ether);
-
+        _setDebtCeiling(vault, 100 ether);
+        
         // create position
         token.mint(address(this), 100 ether);
         token.approve(address(vault), 100 ether);
@@ -442,69 +398,6 @@ contract CDPVaultTest is TestBase {
             vault.deriveLimitOrderId(maker),
             uint256(uint160(maker))
         );
-    }
-
-    function test_calculateAssetsAndLiabilities() public {
-        CDPVaultWrapper vault = _createVaultWrapper({
-            protocolFee: 0,
-            targetUtilizationRatio: 0,
-            minInterestRate: uint64(WAD),
-            maxInterestRate: uint64(1000000021919499726),
-            targetInterestRate: uint64(1000000015353288160),
-            maxRebate: uint128(WAD),
-            rebateRate: 0,
-            baseRate: WAD,
-            liquidationRatio: 1.25 ether
-        });
-        
-        createCredit(address(this), 100 ether);
-        cdm.modifyPermission(address(vault), true);
-        vault.delegateCredit(100 ether);
-
-        token.mint(address(this), 100 ether);
-        token.approve(address(vault), 100 ether);
-        vault.deposit(address(this), 100 ether);
-        vault.modifyCollateralAndDebt(address(this), address(this), address(this), 100 ether, 75 ether);
-
-        (
-            uint256 assets, 
-            uint256 liabilities, 
-            uint256 credit, 
-            uint256 creditLine
-        ) = vault.calculateAssetsAndLiabilities(0);
-
-        assertEq(assets, 100 ether);
-        assertEq(liabilities, 0);
-        assertEq(credit, 25 ether);
-        assertEq(creditLine, 25 ether);
-    }
-
-    function test_calculateAssetsAndLiabilities_revertsOnInsufficientAssets() public {
-        CDPVaultWrapper vault = _createVaultWrapper({
-            protocolFee: 2.1 ether,
-            targetUtilizationRatio: 0,
-            minInterestRate: uint64(WAD),
-            maxInterestRate: uint64(1000000021919499726),
-            targetInterestRate: uint64(1000000015353288160),
-            maxRebate: uint128(WAD),
-            rebateRate: 0,
-            baseRate: 1000000021919499726,
-            liquidationRatio : WAD
-        });
-
-        createCredit(address(this), 100 ether);
-        cdm.modifyPermission(address(vault), true);
-        vault.delegateCredit(100 ether);
-
-        token.mint(address(this), 100 ether);
-        token.approve(address(vault), 100 ether);
-        vault.deposit(address(this), 100 ether);
-        vault.modifyCollateralAndDebt(address(this), address(this), address(this), 100 ether, 100 ether);
-
-        vm.warp(block.timestamp + 365 days);
-
-        vm.expectRevert(CDPVault.CDPVault__calculateAssetsAndLiabilities_insufficientAssets.selector);
-        vault.calculateAssetsAndLiabilities(0);
     }
 
     function test_calculateRateAccumulator_staticRate(uint64 baseRate) public {
@@ -600,10 +493,8 @@ contract CDPVaultTest is TestBase {
         cdm.modifyPermission(address(vault), true);
         cdm.setParameter(address(vault), "debtCeiling", 200 ether);
 
-        // delegate credit to vault
-        createCredit(address(this), 100 ether);
-        vault.delegateCredit(100 ether);
-
+        _setDebtCeiling(vault, 100 ether);
+        
         // create position
         token.mint(address(this), 200 ether);
         token.approve(address(vault), 200 ether);
@@ -632,282 +523,10 @@ contract CDPVaultTest is TestBase {
         assertEq(rateAccumulator, expectedValue);
     }
 
-    function test_claimUndelegatedCredit_simple_delegateFirst() public {
-        CDPVault_TypeA vault = createCDPVault_TypeA(token, 0, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
-
-        // obtain additional credit to repay interest
-        createCredit(address(this), 100 ether);
-
-        vault.delegateCredit(100 ether);
-        assertEq(credit(address(vault)), 100 ether);
-        assertEq(vault.shares(address(this)), 100 ether);
-
-        (
-            , uint256 epoch, uint256 claimableAtEpoch, uint256 fixableUntilEpoch
-        ) = vault.undelegateCredit(vault.shares(address(this)), new uint256[](0));
-        assertEq(epoch < claimableAtEpoch && claimableAtEpoch < fixableUntilEpoch, true);
-        assertEq(vault.sharesQueuedByEpoch(epoch, address(this)), 100 ether);
-        (, uint256 totalCreditWithheld, uint256 totalSharesQueued,,) = vault.epochs(epoch);
-        assertEq(totalSharesQueued, 100 ether);
-        assertEq(totalCreditWithheld, 100 ether);
-
-        vm.expectRevert();
-        vault.claimUndelegatedCredit(epoch);
-
-        vm.warp(block.timestamp + vault.EPOCH_DURATION() * vault.EPOCH_FIX_DELAY());
-        uint256 creditAmount = vault.claimUndelegatedCredit(epoch);
-        assertEq(creditAmount, 100 ether);
-        assertEq(credit(address(this)), 100 ether);
-        assertEq(vault.shares(address(this)), 0);
-    }
-
-    function test_claimUndelegatedCredit_multiple() public {
-        CDPVault_TypeA vault = createCDPVault_TypeA(token, 0, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
-
-        CreditDelegator delegatorA = new CreditDelegator(cdm);
-        createCredit(address(delegatorA), 100 ether);
-        delegatorA.delegateCredit(vault, 100 ether);
-        assertEq(credit(address(vault)), 100 ether);
-        assertEq(vault.shares(address(delegatorA)), 100 ether);
-
-        CreditDelegator delegatorB = new CreditDelegator(cdm);
-        createCredit(address(delegatorB), 50 ether);
-        delegatorB.delegateCredit(vault, 50 ether);
-        assertEq(credit(address(vault)), 150 ether);
-        assertEq(vault.shares(address(delegatorB)), 50 ether);
-
-        (
-            , uint256 epoch, uint256 claimableAtEpoch, uint256 fixableUntilEpoch
-        ) = delegatorA.undelegateCredit(vault, vault.shares(address(delegatorA)), new uint256[](0));
-        assertEq(epoch < claimableAtEpoch && claimableAtEpoch < fixableUntilEpoch, true);
-        assertEq(vault.sharesQueuedByEpoch(epoch, address(delegatorA)), 100 ether);
-        (, uint256 totalCreditWithheld, uint256 totalSharesQueued,,) = vault.epochs(epoch);
-        assertEq(totalSharesQueued, 100 ether);
-        assertEq(totalCreditWithheld, 100 ether);
-
-        (
-            , epoch, claimableAtEpoch, fixableUntilEpoch
-        ) = delegatorB.undelegateCredit(vault, vault.shares(address(delegatorB)), new uint256[](0));
-        assertEq(epoch < claimableAtEpoch && claimableAtEpoch < fixableUntilEpoch, true);
-        assertEq(vault.sharesQueuedByEpoch(epoch, address(delegatorB)), 50 ether);
-        (, totalCreditWithheld, totalSharesQueued,,) = vault.epochs(epoch);
-        assertEq(totalSharesQueued, 150 ether);
-        assertEq(totalCreditWithheld, 150 ether);
-
-        vm.expectRevert();
-        vault.claimUndelegatedCredit(epoch);
-
-        vm.warp(block.timestamp + vault.EPOCH_DURATION() * vault.EPOCH_FIX_DELAY());
-        uint256 creditAmountA = delegatorA.claimUndelegatedCredit(vault, epoch);
-        assertEq(creditAmountA, 100 ether);
-        assertEq(credit(address(delegatorA)), 100 ether);
-        assertEq(vault.shares(address(delegatorA)), 0);
-        
-        vm.warp(block.timestamp + vault.EPOCH_DURATION() * 4);
-        uint256 creditAmountB = delegatorB.claimUndelegatedCredit(vault, epoch);
-        assertEq(creditAmountB, 50 ether);
-        assertEq(credit(address(delegatorB)), 50 ether);
-        assertEq(vault.shares(address(delegatorA)), 0);
-    }
-
-    function test_claimUndelegatedCredit_multiple_staleEpoch() public {
-        CDPVault_TypeA vault = createCDPVault_TypeA(token, 0, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
-        CreditDelegator delegatorA = new CreditDelegator(cdm);
-        uint256 startingCredit = 100 ether;
-
-        createCredit(address(delegatorA), startingCredit);
-        delegatorA.delegateCredit(vault, startingCredit);
-        assertEq(credit(address(vault)), startingCredit);
-        assertEq(vault.shares(address(delegatorA)), startingCredit);
-
-        // undelegate half the shares but let the epoch become stale
-        (
-            , uint256 epoch, uint256 claimableAtEpoch, uint256 fixableUntilEpoch
-        ) = delegatorA.undelegateCredit(vault, startingCredit / 2, new uint256[](0));
-
-        // pass time so the epoch becomes stale
-        vm.warp(block.timestamp + vault.EPOCH_DURATION() * 4);
-        uint256[] memory epochs = new uint256[](4);
-        for( uint offset = 0; offset < 4; ++offset){
-            epochs[offset] = epoch + offset;
-        }
-
-        // undelegate again but for the full amount (starting credit)
-        // the first undelegate should be unqueued
-        (
-            , epoch, claimableAtEpoch, fixableUntilEpoch
-        ) = delegatorA.undelegateCredit(vault, startingCredit, epochs);
-
-        assertEq(epoch < claimableAtEpoch && claimableAtEpoch < fixableUntilEpoch, true);
-        assertEq(vault.sharesQueuedByEpoch(epoch, address(delegatorA)), startingCredit);
-        (, uint256 totalCreditWithheld, uint256 totalSharesQueued,,) = vault.epochs(epoch);
-        assertEq(totalSharesQueued, startingCredit);
-        assertEq(totalCreditWithheld,startingCredit);
-    }
-
-    function test_claimUndelegatedCredit_simple_borrowFirst() public {
-        CDPVault_TypeA vault = createCDPVault_TypeA(token, 100 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_025, 0, 0);
-
-        token.mint(address(this), 100 ether);
-        token.approve(address(vault), 100 ether);
-        vault.deposit(address(this), 100 ether);
-        vault.modifyCollateralAndDebt(address(this), address(this), address(this), 100 ether, 50 ether);
-
-        // obtain additional credit to delegate
-        createCredit(address(this), 50 ether);
-        vault.delegateCredit(100 ether);
-        assertEq(credit(address(vault)), 50 ether); // 50 Credit are filling the 50 Debt in the CDM
-        assertEq(vault.shares(address(this)), 100 ether);
-
-        (
-            , uint256 epoch, uint256 claimableAtEpoch, uint256 fixableUntilEpoch
-        ) = vault.undelegateCredit(vault.shares(address(this)), new uint256[](0));
-        assertEq(epoch < claimableAtEpoch && claimableAtEpoch < fixableUntilEpoch, true);
-        assertEq(vault.sharesQueuedByEpoch(epoch, address(this)), 100 ether);
-        (, uint256 totalCreditWithheld, uint256 totalSharesQueued,, uint256 estimatedCreditClaimPerShare) = vault.epochs(epoch);
-        assertEq(totalSharesQueued, 100 ether);
-        assertGe(totalCreditWithheld, 100 ether);
-        assertEq(estimatedCreditClaimPerShare, 1 ether); // no interest has accrued yet
-
-        vm.expectRevert();
-        vault.claimUndelegatedCredit(epoch);
-
-        vm.warp(block.timestamp + vault.EPOCH_DURATION() * vault.EPOCH_FIX_DELAY());
-        uint256 creditAmount = vault.claimUndelegatedCredit(epoch);
-        assertEq(creditAmount, 100 ether); // does not include the accrued interest
-        assertEq(credit(address(this)), 100 ether);
-        assertEq(vault.shares(address(this)), 0);
-    }
-
-    function test_claimUndelegatedCredit_fixTimeout() public {
-        CDPVault_TypeA vault = createCDPVault_TypeA(token, 0, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
-
-        // obtain additional credit to repay interest
-        createCredit(address(this), 100 ether);
-
-        vault.delegateCredit(100 ether);
-        assertEq(credit(address(vault)), 100 ether);
-        assertEq(vault.shares(address(this)), 100 ether);
-
-        (
-            , uint256 epoch, uint256 claimableAtEpoch, uint256 fixableUntilEpoch
-        ) = vault.undelegateCredit(vault.shares(address(this)), new uint256[](0));
-        assertEq(epoch < claimableAtEpoch && claimableAtEpoch < fixableUntilEpoch, true);
-        assertEq(vault.sharesQueuedByEpoch(epoch, address(this)), 100 ether);
-        (, uint256 totalCreditWithheld, uint256 totalSharesQueued,,) = vault.epochs(epoch);
-        assertEq(totalSharesQueued, 100 ether);
-        assertEq(totalCreditWithheld, 100 ether);
-
-        uint256 snapshot = vm.snapshot();
-
-        vm.warp(block.timestamp + vault.EPOCH_DURATION() * (vault.EPOCH_FIX_TIMEOUT()));
-        assertEq(vault.claimUndelegatedCredit(epoch), 100 ether);
-
-        vm.revertTo(snapshot);
-
-        vm.warp(block.timestamp + vault.EPOCH_DURATION() * (vault.EPOCH_FIX_TIMEOUT() + 1));
-        vm.expectRevert(CDPVault.CDPVault__claimUndelegatedCredit_epochNotFixed.selector);
-        vault.claimUndelegatedCredit(epoch);
-    }
-
-    function test_claimUndelegatedCredit_noLiquidity() public {
-        CDPVault_TypeA vault = createCDPVault_TypeA(token, 0, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
-
-        // obtain additional credit to repay interest
-        createCredit(address(this), 100 ether);
-
-        vault.delegateCredit(100 ether);
-        assertEq(credit(address(vault)), 100 ether);
-        assertEq(vault.shares(address(this)), 100 ether);
-
-        token.mint(address(this), 100 ether);
-        token.approve(address(vault), 100 ether);
-        vault.deposit(address(this), 100 ether);
-        vault.modifyCollateralAndDebt(address(this), address(this), address(this), 100 ether, 50 ether);
-
-        (
-            , uint256 epoch, uint256 claimableAtEpoch, uint256 fixableUntilEpoch
-        ) = vault.undelegateCredit(vault.shares(address(this)), new uint256[](0));
-        assertEq(epoch < claimableAtEpoch && claimableAtEpoch < fixableUntilEpoch, true);
-        assertEq(vault.sharesQueuedByEpoch(epoch, address(this)), 100 ether);
-        (, uint256 totalCreditWithheld, uint256 totalSharesQueued,,) = vault.epochs(epoch);
-        assertEq(totalSharesQueued, 100 ether);
-        assertEq(totalCreditWithheld, 50 ether);
-
-        vm.warp(block.timestamp + vault.EPOCH_DURATION() * vault.EPOCH_FIX_DELAY());
-        uint256 creditAmount = vault.claimUndelegatedCredit(epoch);
-        assertEq(creditAmount, 50 ether);
-        assertEq(credit(address(this)), 50 ether + 50 ether); // 50 ether undelegated + 50 ether borrowed
-        assertEq(vault.shares(address(this)), 50 ether);
-    }
-
-    function test_claimUndelegatedCredit_loss() public {
-        CDPVault_TypeA vault = createCDPVault_TypeA(token, 0, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
-
-        // obtain additional credit to repay interest
-        createCredit(address(this), 100 ether);
-
-        vault.delegateCredit(100 ether);
-        assertEq(credit(address(vault)), 100 ether);
-        assertEq(vault.shares(address(this)), 100 ether);
-
-        vm.prank(address(vault));
-        cdm.modifyBalance(address(vault), address(0), 50 ether);
-
-        (
-            , uint256 epoch, uint256 claimableAtEpoch, uint256 fixableUntilEpoch
-        ) = vault.undelegateCredit(vault.shares(address(this)), new uint256[](0));
-        assertEq(epoch < claimableAtEpoch && claimableAtEpoch < fixableUntilEpoch, true);
-        assertEq(vault.sharesQueuedByEpoch(epoch, address(this)), 100 ether);
-        (, uint256 totalCreditWithheld, uint256 totalSharesQueued,,) = vault.epochs(epoch);
-        assertEq(totalSharesQueued, 100 ether);
-        assertEq(totalCreditWithheld, 50 ether);
-
-        vm.warp(block.timestamp + vault.EPOCH_DURATION() * vault.EPOCH_FIX_DELAY());
-        uint256 creditAmount = vault.claimUndelegatedCredit(epoch);
-        assertEq(creditAmount, 50 ether);
-        assertEq(credit(address(this)), 50 ether);
-        assertEq(vault.shares(address(this)), 0);
-    }
-
-    function test_claimUndelegatedCredit_advancement() public {
-        CDPVault_TypeA vault = createCDPVault_TypeA(token, 50 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
-
-        // obtain additional credit to repay interest
-        createCredit(address(this), 100 ether);
-
-        vault.delegateCredit(100 ether);
-        assertEq(credit(address(vault)), 100 ether);
-        assertEq(vault.shares(address(this)), 100 ether);
-
-        token.mint(address(this), 100 ether);
-        token.approve(address(vault), 100 ether);
-        vault.deposit(address(this), 100 ether);
-        vault.modifyCollateralAndDebt(address(this), address(this), address(this), 100 ether, 50 ether);
-
-        (
-            , uint256 epoch, uint256 claimableAtEpoch, uint256 fixableUntilEpoch
-        ) = vault.undelegateCredit(vault.shares(address(this)), new uint256[](0));
-        assertEq(epoch < claimableAtEpoch && claimableAtEpoch < fixableUntilEpoch, true);
-        assertEq(vault.sharesQueuedByEpoch(epoch, address(this)), 100 ether);
-        (, uint256 totalCreditWithheld, uint256 totalSharesQueued,,) = vault.epochs(epoch);
-        assertEq(totalSharesQueued, 100 ether);
-        assertEq(totalCreditWithheld, 100 ether);
-
-        vm.warp(block.timestamp + vault.EPOCH_DURATION() * vault.EPOCH_FIX_DELAY());
-        uint256 creditAmount = vault.claimUndelegatedCredit(epoch);
-        assertEq(creditAmount, 100 ether);
-        assertEq(credit(address(this)), 100 ether + 50 ether); // 100 ether undelegated + 50 ether borrowed
-        assertEq(vault.shares(address(this)), 0);
-    }
-
     function test_claimFees() public {
         CDPVault_TypeA vault = createCDPVault_TypeA(token, 0, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_025, 1.05 ether, 0);
 
-        createCredit(address(this), 100 ether);
-        vault.delegateCredit(100 ether);
-        assertEq(credit(address(vault)), 100 ether);
-        assertEq(vault.shares(address(this)), 100 ether);
+        _setDebtCeiling(vault, 100 ether);
 
         token.mint(address(this), 100 ether);
         token.approve(address(vault), 100 ether);
@@ -1334,9 +953,7 @@ contract CDPVaultTest is TestBase {
     function test_non_reserve_interest() public {
         CDPVault_TypeA vault = createCDPVault_TypeA(token, 0, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_005, 0, 0);
 
-        // delegate 100 credit to CDPVault
-        createCredit(address(this), 100 ether);
-        vault.delegateCredit(100 ether);
+        _setDebtCeiling(vault, 100 ether);
 
         // create position
         token.mint(address(this), 100 ether);
@@ -1387,9 +1004,7 @@ contract CDPVaultTest is TestBase {
     function test_exchange_simple_non_reserve() public {
         CDPVault_TypeA vault = createCDPVault_TypeA(token, 0, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
 
-        // delegate 50 credit to CDPVault
-        createCredit(address(this), 50 ether);
-        vault.delegateCredit(50 ether);
+        _setDebtCeiling(vault, 50 ether);
         
         // create position
         token.mint(address(this), 100 ether);
@@ -1638,5 +1253,4 @@ contract CDPVaultTest is TestBase {
         debt = _virtualDebt(vault, address(this));
         assertEq(calculateNormalDebt(debt, rateAccumulator, accruedRebate), initialDebt);
     }
-
 }
