@@ -51,7 +51,7 @@ abstract contract InterestRateModel {
 
     event SetBaseRate(int64 baseRate);
     event SetGlobalIRS();
-    event SetPositionIRS(address position);
+    event SetPositionIRS(address indexed position, uint256 snapshotRateAccumulator, uint256 accruedRebate, uint256 rebateFactor);
 
     /*//////////////////////////////////////////////////////////////
                                  ERRORS
@@ -98,7 +98,9 @@ abstract contract InterestRateModel {
     /// @param positionIRS New interest rate state of the position
     function _setPositionIRS(address position, PositionIRS memory positionIRS) internal {
         _positionIRS[position] = positionIRS;
-        emit SetPositionIRS(position);
+        emit SetPositionIRS(
+            position, positionIRS.snapshotRateAccumulator, positionIRS.accruedRebate, positionIRS.rebateFactor
+        );
     }
 
     /// @notice Sets the base interest rate
