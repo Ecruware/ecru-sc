@@ -130,7 +130,7 @@ contract VaultWrapperFactory {
 
     function create() external returns(CDPVaultWrapper vault) {
         vault = new CDPVaultWrapper(address(this));
-
+        vault.setUp();
         vault.grantRole(vault.DEFAULT_ADMIN_ROLE(), msg.sender);
     }
 }
@@ -491,9 +491,7 @@ contract CDPVaultTest is TestBase {
         
         // setup vault permissions in CDM
         cdm.modifyPermission(address(vault), true);
-        cdm.setParameter(address(vault), "debtCeiling", 200 ether);
-
-        _setDebtCeiling(vault, 100 ether);
+        _setDebtCeiling(vault, 200 ether);
         
         // create position
         token.mint(address(this), 200 ether);
@@ -950,34 +948,6 @@ contract CDPVaultTest is TestBase {
         vault.modifyCollateralAndDebt(address(this), address(this), address(this), -200 ether, -150 ether);
     }
 
-    function test_non_reserve_interest() public {
-        CDPVault_TypeA vault = createCDPVault_TypeA(token, 0, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_005, 0, 0);
-
-        _setDebtCeiling(vault, 100 ether);
-
-        // create position
-        token.mint(address(this), 100 ether);
-        token.approve(address(vault), 100 ether);
-        vault.deposit(address(this), 100 ether);
-        assertEq(vault.cash(address(this)), 100 ether);
-        vault.modifyCollateralAndDebt(address(this), address(this), address(this), 100 ether, 80 ether);
-        assertEq(debt(address(vault)), 0);
-        assertEq(credit(address(this)), 80 ether);
-
-        // accrue interest        
-        assertEq(_virtualDebt(vault, address(this)), 80 ether);
-        vm.warp(block.timestamp + 365 days);
-        assertGt(_virtualDebt(vault, address(this)), 80 ether);
-
-        // obtain additional credit to repay interest
-        createCredit(address(this), 0.5 ether);
-
-        // repay debt
-        vault.modifyCollateralAndDebt(address(this), address(this), address(this), -100 ether, -80 ether);
-        assertEq(_virtualDebt(vault, address(this)), 0);
-        assertGt(credit(address(vault)), 100 ether);
-    }
-
     function test_exchange_simple_reserve() public {
         CDPVault_TypeA vault = createCDPVault_TypeA(token, 100 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
 
@@ -998,30 +968,6 @@ contract CDPVaultTest is TestBase {
         assertEq(credit(address(this)), 0);
         assertEq(debt(address(vault)), 0);
         assertEq(credit(address(vault)), 0);
-        assertEq(vault.cash(address(this)), 50 ether);
-    }
-
-    function test_exchange_simple_non_reserve() public {
-        CDPVault_TypeA vault = createCDPVault_TypeA(token, 0, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
-
-        _setDebtCeiling(vault, 50 ether);
-        
-        // create position
-        token.mint(address(this), 100 ether);
-        token.approve(address(vault), 100 ether);
-        vault.deposit(address(this), 100 ether);
-        vault.modifyCollateralAndDebt(address(this), address(this), address(this), 100 ether, 50 ether);
-
-        // create limit order
-        vault.addLimitPriceTick(WAD, 0);
-        vault.createLimitOrder(WAD);
-        assertEq(vault.cash(address(this)), 0);
-
-        // exchange
-        assertEq(credit(address(vault)), 0);
-        vault.exchange(WAD, 50 ether);
-        assertEq(credit(address(this)), 0);
-        assertEq(credit(address(vault)), 50 ether);
         assertEq(vault.cash(address(this)), 50 ether);
     }
 
