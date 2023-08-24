@@ -71,7 +71,7 @@ contract CDPVault_TypeB_Factory is ICDPVault_FactoryBase, ICDPVault_TypeB_Factor
         CDPVault_TypeBConfig memory cdpVaultTypeBConfig,
         CDPVaultConfig memory cdpVaultConfig,
         uint256 debtCeiling
-    ) external override(ICDPVault_TypeB_Factory) whenNotPaused returns (address) {
+    ) external override(ICDPVault_TypeB_Factory) virtual whenNotPaused returns (address) {
         constants = cdpVaultConstants;
 
         CDPVault_TypeB vault = CDPVault_TypeB(deployer.deploy());

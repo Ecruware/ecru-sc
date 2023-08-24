@@ -103,7 +103,10 @@ contract CDPVault_TypeB is CDPVault_TypeA, ICDPVault_TypeBBase {
                              INITIALIZATION
     //////////////////////////////////////////////////////////////*/
 
+    event debug(string, address);
     constructor(address factory) CDPVault_TypeA(factory) {
+        emit debug("creditWitholder 123123",address(ICDPVault_TypeB_Factory(factory)));
+        emit debug("creditWitholder", address(ICDPVault_TypeB_Factory(factory).creditWithholder()));
         creditWithholder = ICDPVault_TypeB_Factory(factory).creditWithholder();
     }
 
