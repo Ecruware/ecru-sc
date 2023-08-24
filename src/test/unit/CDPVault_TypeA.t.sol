@@ -10,7 +10,7 @@ import {Buffer} from "../../Buffer.sol";
 
 contract CDPVault_TypeATest is TestBase {
 
-    function setUp() public override {
+    function setUp() public virtual override(TestBase) {
         super.setUp();
         oracle.updateSpot(address(token), WAD);
     }

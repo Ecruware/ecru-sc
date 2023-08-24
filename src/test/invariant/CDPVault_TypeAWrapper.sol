@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.19;
 
-import {ICDPVault_TypeA_Deployer} from "../../interfaces/ICDPVault_TypeA_Deployer.sol";
+import {ICDPVault_Deployer} from "../../interfaces/ICDPVault_Deployer.sol";
 
 import {wmul, wdiv, min, add, mul} from "../../utils/Math.sol";
 
@@ -84,7 +84,7 @@ contract CDPVault_TypeAWrapper is CDPVault_TypeA {
     }
 }
 
-contract CDPVault_TypeAWrapper_Deployer is ICDPVault_TypeA_Deployer {
+contract CDPVault_TypeAWrapper_Deployer is ICDPVault_Deployer {
     function deploy() external returns (address vault) {
         vault = address(new CDPVault_TypeAWrapper(msg.sender));
     }

@@ -1,7 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
+import {IERC20} from "openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+import {SafeERC20} from "openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+
+import {ICDPVaultBase} from "./interfaces/ICDPVault.sol";
+
 import {ICDPVault_TypeB, ICDPVault_TypeBBase} from "./interfaces/ICDPVault_TypeB.sol";
+
+import {ICDPVault_TypeB_Factory} from "./interfaces/ICDPVault_TypeB_Factory.sol";
 
 import {WAD, max, min, wmul, wdiv, toInt256} from "./utils/Math.sol";
 
@@ -15,6 +23,12 @@ import {getCredit, getDebt, getCreditLine} from "./CDM.sol";
 /// a targeted collateralization ratio again. Any shortfall from liquidation not being able to be recovered
 /// by selling the available collateral is covered by the global Buffer or the Credit Delegators.
 contract CDPVault_TypeB is CDPVault_TypeA, ICDPVault_TypeBBase {
+
+    /*//////////////////////////////////////////////////////////////
+                               LIBRARIES
+    //////////////////////////////////////////////////////////////*/
+
+    using SafeERC20 for IERC20;
 
     /*//////////////////////////////////////////////////////////////
                                 CONSTANTS
@@ -79,17 +93,24 @@ contract CDPVault_TypeB is CDPVault_TypeA, ICDPVault_TypeBBase {
                                  ERRORS
     //////////////////////////////////////////////////////////////*/
 
-    error CDPVault__calculateAssetsAndLiabilities_insufficientAssets();
-    error CDPVault__delegateCredit_creditAmountTooSmall();
-    error CDPVault__claimUndelegatedCredit_epochNotClaimable();
-    error CDPVault__claimUndelegatedCredit_epochNotFixed();
+    error CDPVault_TypeB__setUp_Deactivated();
+    error CDPVault_TypeB__calculateAssetsAndLiabilities_insufficientAssets();
+    error CDPVault_TypeB__delegateCredit_creditAmountTooSmall();
+    error CDPVault_TypeB__claimUndelegatedCredit_epochNotClaimable();
+    error CDPVault_TypeB__claimUndelegatedCredit_epochNotFixed();
 
     /*//////////////////////////////////////////////////////////////
                              INITIALIZATION
     //////////////////////////////////////////////////////////////*/
 
-    constructor(address factory, address creditWithholder_) CDPVault_TypeA(factory) {
-        creditWithholder = creditWithholder_;
+    constructor(address factory) CDPVault_TypeA(factory) {
+        creditWithholder = ICDPVault_TypeB_Factory(factory).creditWithholder();
+    }
+
+    function setUnwinderFactory(address unwinderFactory) onlyRole(DEFAULT_ADMIN_ROLE) public virtual {
+        // approve CDPVaultUnwinderFactory to transfer all the tokens and credit out of this contract
+        token.safeApprove(unwinderFactory, type(uint256).max);
+        cdm.modifyPermission(unwinderFactory, true);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -132,7 +153,7 @@ contract CDPVault_TypeB is CDPVault_TypeA, ICDPVault_TypeBBase {
         // + amount of accrued fees that belongs to the protocol (not the delegators)
         liabilities = getDebt(balance) + totalAccruedFees_;
         // check if vault is insolvent (more liabilities than assets) 
-        if (assets < liabilities) revert CDPVault__calculateAssetsAndLiabilities_insufficientAssets();
+        if (assets < liabilities) revert CDPVault_TypeB__calculateAssetsAndLiabilities_insufficientAssets();
     }
 
     /// @notice Fixes credit claims for epochs within the epoch fix timeout that have passed the epoch fix delay
@@ -276,7 +297,7 @@ contract CDPVault_TypeB is CDPVault_TypeA, ICDPVault_TypeBBase {
     /// @param creditAmount Amount of credit to delegate [wad]
     /// @return sharesAmount Amount of shares issued [wad]
     function delegateCredit(uint256 creditAmount) external returns (uint256 sharesAmount) {
-        if (creditAmount < WAD) revert CDPVault__delegateCredit_creditAmountTooSmall();
+        if (creditAmount < WAD) revert CDPVault_TypeB__delegateCredit_creditAmountTooSmall();
 
         // fix all claims for all non stale epochs
         (
@@ -368,7 +389,7 @@ contract CDPVault_TypeB is CDPVault_TypeA, ICDPVault_TypeBBase {
         uint256 currentEpoch = getCurrentEpoch();
         unchecked {
             if (currentEpoch < claimForEpoch + EPOCH_FIX_DELAY)
-                revert CDPVault__claimUndelegatedCredit_epochNotClaimable();
+                revert CDPVault_TypeB__claimUndelegatedCredit_epochNotClaimable();
         }
 
         // fix all claims for all non stale epochs
@@ -380,7 +401,7 @@ contract CDPVault_TypeB is CDPVault_TypeA, ICDPVault_TypeBBase {
         
         // if epoch is not fixed, then revert
         if (epochCache.totalSharesQueued != 0 && epochCache.claimRatio == 0)
-            revert CDPVault__claimUndelegatedCredit_epochNotFixed();
+            revert CDPVault_TypeB__claimUndelegatedCredit_epochNotFixed();
 
         // update shares by the claim ratio
         uint256 shareAmount = sharesQueuedByEpoch[claimForEpoch][msg.sender];

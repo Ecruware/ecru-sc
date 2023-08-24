@@ -13,7 +13,9 @@ import {IERC20Metadata} from "openzeppelin/contracts/token/ERC20/extensions/IERC
 import {ICDM} from "../interfaces/ICDM.sol";
 import {ICDPVault, ICDPVaultBase} from "../interfaces/ICDPVault.sol";
 import {IFlashlender} from "../interfaces/IFlashlender.sol";
-import {CDPVaultConstants, CDPVaultConfig, CDPVault_TypeAConfig} from "../interfaces/ICDPVault_TypeA_Factory.sol";
+import {CDPVaultConfig, CDPVaultConstants} from "../interfaces/ICDPVault_FactoryBase.sol";
+import {CDPVault_TypeAConfig} from "../interfaces/ICDPVault_TypeA_Factory.sol";
+import {CDPVault_TypeBConfig} from "../interfaces/ICDPVault_TypeB_Factory.sol";
 
 import {Stablecoin, MINTER_AND_BURNER_ROLE} from "../Stablecoin.sol";
 import {CDM, getCredit, getDebt, getCreditLine, ACCOUNT_CONFIG_ROLE} from "../CDM.sol";
@@ -21,8 +23,10 @@ import {Minter} from "../Minter.sol";
 import {Flashlender} from "../Flashlender.sol";
 import {Buffer, BAIL_OUT_QUALIFIER_ROLE} from "../Buffer.sol";
 import {CDPVault_TypeA} from "../CDPVault_TypeA.sol";
+import {CDPVault_TypeB} from "../CDPVault_TypeB.sol";
 import {CDPVaultUnwinderFactory} from "../CDPVaultUnwinder.sol";
 import {CDPVault_TypeA_Factory, CDPVault_TypeA_Deployer} from "../CDPVault_TypeA_Factory.sol";
+import {CDPVault_TypeB_Factory, CDPVault_TypeB_Deployer} from "../CDPVault_TypeB_Factory.sol";
 
 import {MockOracle} from "./MockOracle.sol";
 
@@ -43,8 +47,8 @@ contract TestBase is Test {
     Buffer internal buffer;
 
     CDPVaultUnwinderFactory internal cdpVaultUnwinderFactory;
-    CDPVault_TypeA_Factory internal cdpVaultFactory;
-
+    CDPVault_TypeA_Factory internal cdpVaultTypeAFactory;
+    CDPVault_TypeB_Factory internal cdpVaultTypeBFactory;
 
     ProxyAdmin internal bufferProxyAdmin;
 
@@ -106,14 +110,23 @@ contract TestBase is Test {
     }
 
     function createFactories() internal virtual {
-        cdpVaultUnwinderFactory = new CDPVaultUnwinderFactory();
-        cdpVaultFactory = new CDPVault_TypeA_Factory(
+        cdpVaultTypeAFactory = new CDPVault_TypeA_Factory(
             new CDPVault_TypeA_Deployer(),
             address(this),
             address(this),
             address(this)
         );
-        cdm.grantRole(ACCOUNT_CONFIG_ROLE, address(cdpVaultFactory));
+        cdm.grantRole(ACCOUNT_CONFIG_ROLE, address(cdpVaultTypeAFactory));
+
+        cdpVaultUnwinderFactory = new CDPVaultUnwinderFactory();
+        cdpVaultTypeBFactory = new CDPVault_TypeB_Factory(
+            new CDPVault_TypeB_Deployer(),
+            address(cdpVaultUnwinderFactory),
+            address(this),
+            address(this),
+            address(this)
+        );
+         cdm.grantRole(ACCOUNT_CONFIG_ROLE, address(cdpVaultTypeBFactory));
     }
 
     // includes protocolFee
@@ -174,7 +187,7 @@ contract TestBase is Test {
         uint256 debtCeiling
     ) internal returns (CDPVault_TypeA vault) {
         vault = CDPVault_TypeA(
-            cdpVaultFactory.create(
+            cdpVaultTypeAFactory.create(
                 params,
                 paramsTypeA,
                 configs,
@@ -191,6 +204,83 @@ contract TestBase is Test {
 
         vm.label({account: address(vault), newLabel: "CDPVault_TypeA"});
     }
+    
+    function createCDPVault_TypeB(
+        IERC20 token_,
+        uint256 debtCeiling,
+        uint128 debtFloor,
+        uint64 liquidationRatio,
+        uint64 liquidationPenalty,
+        uint64 liquidationDiscount,
+        uint64 targetHealthFactor,
+        uint256 rebateRate,
+        uint256 maxRebate,
+        uint256 baseRate,
+        uint256 protocolFee,
+        uint64 globalLiquidationRatio
+    ) internal returns (CDPVault_TypeB) {
+        return createCDPVault_TypeB(
+            CDPVaultConstants({
+                cdm: cdm,
+                oracle: oracle,
+                buffer: buffer,
+                token: token_,
+                tokenScale: 10**IERC20Metadata(address(token_)).decimals(),
+                protocolFee: protocolFee,
+                targetUtilizationRatio: 0,
+                maxUtilizationRatio: uint64(WAD),
+                minInterestRate: uint64(WAD),
+                maxInterestRate: uint64(1000000021919499726),
+                targetInterestRate: uint64(1000000015353288160),
+                rebateRate: uint128(rebateRate),
+                maxRebate: uint128(maxRebate)
+            }),
+            CDPVault_TypeBConfig({
+                liquidationPenalty: liquidationPenalty,
+                liquidationDiscount: liquidationDiscount,
+                targetHealthFactor: targetHealthFactor,
+                vaultUnwinder: address(this)
+            }),
+            CDPVaultConfig({
+                debtFloor: debtFloor,
+                limitOrderFloor: WAD,
+                liquidationRatio: liquidationRatio,
+                globalLiquidationRatio: globalLiquidationRatio,
+                baseRate: baseRate,
+                roleAdmin: address(this),
+                vaultAdmin: address(this),
+                tickManager: address(this),
+                pauseAdmin: address(this)
+            }),
+            debtCeiling
+        );
+    }
+
+    function createCDPVault_TypeB(
+        CDPVaultConstants memory params,
+        CDPVault_TypeBConfig memory paramsTypeB,
+        CDPVaultConfig memory configs,
+        uint256 debtCeiling
+    ) internal returns (CDPVault_TypeB vault) {
+        vault = CDPVault_TypeB(
+            cdpVaultTypeBFactory.create(
+                params,
+                paramsTypeB,
+                configs,
+                debtCeiling
+            )
+        );
+
+        cdm.modifyPermission(address(vault), true);
+        buffer.grantRole(BAIL_OUT_QUALIFIER_ROLE, address(vault));
+
+        (int256 balance, uint256 debtCeiling_) = cdm.accounts(address(vault));
+        assertEq(balance, 0);
+        assertEq(debtCeiling_, debtCeiling);
+
+        vm.label({account: address(vault), newLabel: "CDPVault_TypeB"});
+    }
+
 
     function labelContracts() internal virtual {
         vm.label({account: address(cdm), newLabel: "CDM"});
@@ -277,6 +367,15 @@ contract TestBase is Test {
             liquidationPenalty: uint64(WAD),
             liquidationDiscount: uint64(WAD),
             targetHealthFactor: 1.25 ether
+        });
+    }
+
+    function _getDefaultVaultParams_TypeB() internal view returns (CDPVault_TypeBConfig memory) {
+        return CDPVault_TypeBConfig({
+            liquidationPenalty: uint64(WAD),
+            liquidationDiscount: uint64(WAD),
+            targetHealthFactor: 1.25 ether,
+            vaultUnwinder: address(this)
         });
     }
 

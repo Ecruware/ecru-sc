@@ -9,7 +9,7 @@ import {IBuffer} from "./interfaces/IBuffer.sol";
 import {ICDM} from "./interfaces/ICDM.sol";
 import {ICDPVaultBase} from "./interfaces/ICDPVault.sol";
 import {IOracle} from "./interfaces/IOracle.sol";
-import {ICDPVault_TypeA_Factory} from "./interfaces/ICDPVault_TypeA_Factory.sol";
+import {ICDPVault_FactoryBase} from "./interfaces/ICDPVault_FactoryBase.sol";
 
 import {WAD, toInt256, toUint64, max, min, add, sub, wmul, wdiv, wmulUp} from "./utils/Math.sol";
 import {DoubleLinkedList} from "./utils/DoubleLinkedList.sol";
@@ -209,7 +209,7 @@ abstract contract CDPVault is AccessControl, Pause, Permission, InterestRateMode
             protocolFee,
             utilizationParams,
             rebateParams
-        ) = ICDPVault_TypeA_Factory(factory).getConstants();
+        ) = ICDPVault_FactoryBase(factory).getConstants();
     }
 
     function setUp() public virtual {
