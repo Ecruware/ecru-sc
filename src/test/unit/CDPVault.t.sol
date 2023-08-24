@@ -492,6 +492,8 @@ contract CDPVaultTest is TestBase {
         // setup vault permissions in CDM
         cdm.modifyPermission(address(vault), true);
         _setDebtCeiling(vault, 200 ether);
+
+        createCredit(address(vault), 100 ether);
         
         // create position
         token.mint(address(this), 200 ether);
