@@ -24,6 +24,133 @@ import {CDPVault_TypeB} from "../../CDPVault_TypeB.sol";
 import {InterestRateModel} from "../../InterestRateModel.sol";
 import {CDPVault_TypeB_Factory, CreditWithholder, DEPLOYER_ROLE} from "../../CDPVault_TypeB_Factory.sol";
 
+contract CDPVaultWrapper is CDPVault_TypeB {
+    constructor(address factory) CDPVault_TypeB(factory) { }
+
+    function enteredEmergencyMode(
+        uint64 globalLiquidationRatio,
+        uint256 spotPrice_,
+        uint256 totalNormalDebt_,
+        uint64 rateAccumulator,
+        uint256 globalAccruedRebate
+    ) public view returns (bool) {
+        return _enteredEmergencyMode(
+            globalLiquidationRatio,
+            spotPrice_,
+            totalNormalDebt_,
+            rateAccumulator,
+            globalAccruedRebate
+        );
+    }
+
+    function checkLimitOrder(
+        address owner, uint256 normalDebt, uint64 currentRebateFactor
+    ) public returns (uint64 rebateFactor) {
+        return _checkLimitOrder(owner, normalDebt, currentRebateFactor);
+    }
+
+    function checkLimitOrder(
+        uint256 limitOrderId, uint256 priceTick, uint256 normalDebt, uint64 currentRebateFactor
+    ) public returns (uint64 rebateFactor) {
+        return _checkLimitOrder(limitOrderId, priceTick, normalDebt, currentRebateFactor);
+    }
+
+    function calculateAssetsAndLiabilities(uint256 totalCreditWithheld) public returns (
+        uint256 assets, uint256 liabilities, uint256 credit, uint256 creditLine
+    ) {
+        return _calculateAssetsAndLiabilities(totalCreditWithheld);
+    }
+
+    function calculateRateAccumulator(GlobalIRS memory globalIRS) public view returns(uint64) {
+        return _calculateRateAccumulator(globalIRS, totalNormalDebt);
+    }
+
+    function deriveLimitOrderId(address maker) public pure returns (uint256 orderId){
+        return _deriveLimitOrderId(maker);
+    }
+}
+
+contract VaultWrapperFactory {
+    ICDM private cdm;
+    IOracle private oracle;
+    IBuffer private buffer;
+    IERC20 private token;
+    uint256 private protocolFee;
+    uint256 private utilizationParams;
+    uint256 private rebateParams;
+    uint256 private tokenScale;
+    address private unwinderFactory;
+    uint256 private maxUtilizationRatio;
+
+    struct Params{
+        ICDM cdm;
+        IOracle oracle;
+        IBuffer buffer;
+        IERC20 token;
+        address unwinderFactory;
+        uint256 protocolFee;
+        uint64 targetUtilizationRatio;
+        uint64 maxUtilizationRatio;
+        uint64 minInterestRate;
+        uint64 maxInterestRate;
+        uint64 targetInterestRate;
+        uint128 maxRebate;
+        uint128 rebateRate;
+    }
+
+    constructor(
+        Params memory params
+    ) {
+        cdm = params.cdm;
+        oracle = params.oracle;
+        buffer = params.buffer;
+        token = params.token;
+        tokenScale = IERC20Metadata(address(params.token)).decimals();
+        protocolFee = params.protocolFee;
+
+        unwinderFactory = params.unwinderFactory;
+
+        utilizationParams =
+            uint256(params.targetUtilizationRatio) | (uint256(params.maxUtilizationRatio) << 64) | (uint256(params.minInterestRate - WAD) << 128) |
+            (uint256(params.maxInterestRate - WAD) << 168) | (uint256(params.targetInterestRate - WAD) << 208);
+
+        rebateParams = uint256(params.rebateRate) | (uint256(params.maxRebate) << 128);
+    }
+
+    function getConstants() view external returns (
+        ICDM cdm_,
+        IOracle oracle_,
+        IBuffer buffer_,
+        IERC20 token_,
+        uint256 tokenScale_,
+        uint256 protocolFee_,
+        uint256 utilizationParams_,
+        uint256 rebateParams_
+    ) {
+        return (
+            cdm,
+            oracle,
+            buffer,
+            token,
+            tokenScale,
+            protocolFee,
+            utilizationParams,
+            rebateParams
+        );
+    }
+
+    function creditWithholder() external returns (address) {
+        return address(new CreditWithholder(cdm, address(unwinderFactory), msg.sender));
+    } 
+
+    function create() external returns(CDPVaultWrapper vault) {
+        vault = new CDPVaultWrapper(address(this));
+        vault.setUp();
+        vault.setUnwinderFactory(unwinderFactory);
+        vault.grantRole(vault.DEFAULT_ADMIN_ROLE(), msg.sender);
+    }
+}
+
 contract PositionOwner {
     constructor(IPermission vault) {
         // Allow deployer to modify Position
@@ -71,6 +198,41 @@ contract CDPVaultTest is TestBase {
                             HELPER FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
+    function _createVaultWrapper(
+        uint256 protocolFee,
+        uint64 targetUtilizationRatio,
+        uint64 minInterestRate,
+        uint64 maxInterestRate,
+        uint64 targetInterestRate,
+        uint128 maxRebate,
+        uint128 rebateRate,
+        uint256 baseRate,
+        uint256 liquidationRatio
+
+    ) private returns (CDPVaultWrapper vault){
+        VaultWrapperFactory factory = new VaultWrapperFactory(VaultWrapperFactory.Params({
+            cdm: cdm,
+            oracle: oracle,
+            buffer: buffer,
+            token: token,
+            unwinderFactory: address(cdpVaultUnwinderFactory),
+            protocolFee: protocolFee,
+            targetUtilizationRatio: targetUtilizationRatio,
+            maxUtilizationRatio: uint64(WAD),
+            minInterestRate: minInterestRate,
+            maxInterestRate: maxInterestRate,
+            targetInterestRate: targetInterestRate,
+            maxRebate: maxRebate,
+            rebateRate: rebateRate
+        }));
+
+        vault = factory.create();
+        vault.grantRole(VAULT_CONFIG_ROLE, address(this));
+
+        vault.setParameter("baseRate", baseRate);
+        vault.setParameter("liquidationRatio", liquidationRatio);
+    }
+
     function _virtualDebt(CDPVault_TypeB vault, address position) internal view returns (uint256) {
         (, uint256 normalDebt) = vault.positions(position);
         (uint64 rateAccumulator, uint256 accruedRebate, ) = vault.virtualIRS(position);
@@ -114,6 +276,366 @@ contract CDPVaultTest is TestBase {
     /*//////////////////////////////////////////////////////////////
                             TEST FUNCTIONS
     //////////////////////////////////////////////////////////////*/
+
+    function test_enteredEmergencyMode_1() public {
+        CDPVaultWrapper vault = _createVaultWrapper({
+            protocolFee: 0,
+            targetUtilizationRatio: 0,
+            minInterestRate: uint64(WAD),
+            maxInterestRate: uint64(1000000021919499726),
+            targetInterestRate: uint64(1000000015353288160),
+            maxRebate: uint128(WAD),
+            rebateRate: 0,
+            baseRate: WAD,
+            liquidationRatio : 1.25 ether
+        });
+
+        // not in emergency mode
+        assertEq(vault.paused(), false);
+        assertEq(vault.pausedAt(), 0);
+
+        // not in emergency mode
+        assertEq(vault.enteredEmergencyMode(1.25 ether, 1 ether, 0, 0, 0), false);
+        
+        // in emergency mode because collateralization ratio is too low
+        assertEq(vault.enteredEmergencyMode(1.25 ether, 1 ether, 1 ether, uint64(WAD), 0), true);
+        
+        // collateralize the vault
+        token.mint(address(this), 100 ether);
+        token.approve(address(vault), 100 ether);
+        vault.deposit(address(this), 100 ether);
+
+        // not in emergency mode because collateralization ratio is high enough
+        assertEq(vault.enteredEmergencyMode(1.25 ether, 1 ether, 1 ether, uint64(WAD), 0), false);
+    }
+
+    function test_enteredEmergencyMode() public {
+        CDPVaultWrapper vault = _createVaultWrapper({
+            protocolFee: 0,
+            targetUtilizationRatio: 0,
+            minInterestRate: uint64(WAD),
+            maxInterestRate: uint64(1000000021919499726),
+            targetInterestRate: uint64(1000000015353288160),
+            maxRebate: uint128(WAD),
+            rebateRate: 0,
+            baseRate: WAD,
+            liquidationRatio : 1.25 ether
+        });
+
+        // not in emergency mode
+        assertEq(vault.paused(), false);
+        assertEq(vault.pausedAt(), 0);
+
+        // not in emergency mode
+        assertEq(vault.enteredEmergencyMode(1.25 ether, 1 ether, 0, 0, 0), false);
+        
+        // in emergency mode because collateralization ratio is too low
+        assertEq(vault.enteredEmergencyMode(1.25 ether, 1 ether, 1 ether, uint64(WAD), 0), true);
+        
+        // collateralize the vault
+        token.mint(address(this), 100 ether);
+        token.approve(address(vault), 100 ether);
+        vault.deposit(address(this), 100 ether);
+
+        // not in emergency mode because collateralization ratio is high enough
+        assertEq(vault.enteredEmergencyMode(1.25 ether, 1 ether, 1 ether, uint64(WAD), 0), false);
+    }
+
+    function test_checkLimitOrder() public {
+        CDPVaultWrapper vault = _createVaultWrapper({
+            protocolFee: 0,
+            targetUtilizationRatio: 0,
+            minInterestRate: uint64(WAD),
+            maxInterestRate: uint64(1000000021919499726),
+            targetInterestRate: uint64(1000000015353288160),
+            maxRebate: uint128(WAD),
+            rebateRate: 0,
+            baseRate: uint256(uint64(BASE_RATE_1_025)),
+            liquidationRatio : 1.25 ether
+        });
+
+        vault.grantRole(TICK_MANAGER_ROLE, address(this));
+        vault.setParameter("limitOrderFloor", 10 ether);
+
+        // delegate credit
+        createCredit(address(this), 100 ether);
+        cdm.modifyPermission(address(vault), true);
+        vault.delegateCredit(100 ether);
+
+        // create position
+        token.mint(address(this), 100 ether);
+        token.approve(address(vault), 100 ether);
+        vault.deposit(address(this), 100 ether);
+        vault.modifyCollateralAndDebt(address(this), address(this), address(this), 100 ether, 80 ether);
+        
+        // create limit order
+        vault.addLimitPriceTick(WAD, 0);
+        vault.createLimitOrder(WAD);
+
+        uint64 rebateFactor = vault.calculateRebateFactorForPriceTick(WAD);
+
+        // check limit order rebateFactor
+        assertEq(
+            vault.checkLimitOrder(address(this), 80 ether, rebateFactor),
+            rebateFactor
+        );
+
+        // check the limit order is still active
+        assertEq(
+            vault.limitOrders(vault.deriveLimitOrderId(address(this))),
+            WAD
+        );
+    }
+
+    function test_checkLimitOrder_removesOrderBelowFloor() public {
+        CDPVaultWrapper vault = _createVaultWrapper({
+            protocolFee: 0,
+            targetUtilizationRatio: 0,
+            minInterestRate: uint64(WAD),
+            maxInterestRate: uint64(1000000021919499726),
+            targetInterestRate: uint64(1000000015353288160),
+            maxRebate: uint128(WAD),
+            rebateRate: 0,
+            baseRate: uint256(uint64(BASE_RATE_1_025)),
+            liquidationRatio : 1.25 ether
+        });
+
+        vault.grantRole(TICK_MANAGER_ROLE, address(this));
+        vault.setParameter("limitOrderFloor", 30 ether);
+
+        // delegate credit
+        createCredit(address(this), 100 ether);
+        cdm.modifyPermission(address(vault), true);
+        vault.delegateCredit(100 ether);
+
+        // create position
+        token.mint(address(this), 100 ether);
+        token.approve(address(vault), 100 ether);
+        vault.deposit(address(this), 100 ether);
+        vault.modifyCollateralAndDebt(address(this), address(this), address(this), 100 ether, 50 ether);
+
+        // create limit order
+        vault.addLimitPriceTick(WAD, 0);
+        vault.createLimitOrder(WAD);
+
+        // call the check with a fictive normalDebt to test the floor check
+        uint64 rebateFactor = vault.checkLimitOrder(address(this), 10 ether, uint64(WAD));
+
+        // check that the limit order was removed        
+        assertEq(rebateFactor, 0);
+        assertEq(
+            vault.limitOrders(vault.deriveLimitOrderId(address(this))),
+            0
+        );
+    }
+
+    function test_deriveLimitOrderId(address maker) public {
+        CDPVaultWrapper vault = _createVaultWrapper({
+            protocolFee: 0,
+            targetUtilizationRatio: 0,
+            minInterestRate: uint64(WAD),
+            maxInterestRate: uint64(1000000021919499726),
+            targetInterestRate: uint64(1000000015353288160),
+            maxRebate: uint128(WAD),
+            rebateRate: 0,
+            baseRate: WAD,
+            liquidationRatio: 1.25 ether
+        });
+
+        assertEq(
+            vault.deriveLimitOrderId(maker),
+            uint256(uint160(maker))
+        );
+    }
+
+    function test_calculateAssetsAndLiabilities() public {
+        CDPVaultWrapper vault = _createVaultWrapper({
+            protocolFee: 0,
+            targetUtilizationRatio: 0,
+            minInterestRate: uint64(WAD),
+            maxInterestRate: uint64(1000000021919499726),
+            targetInterestRate: uint64(1000000015353288160),
+            maxRebate: uint128(WAD),
+            rebateRate: 0,
+            baseRate: WAD,
+            liquidationRatio: 1.25 ether
+        });
+        
+        createCredit(address(this), 100 ether);
+        cdm.modifyPermission(address(vault), true);
+        vault.delegateCredit(100 ether);
+
+        token.mint(address(this), 100 ether);
+        token.approve(address(vault), 100 ether);
+        vault.deposit(address(this), 100 ether);
+        vault.modifyCollateralAndDebt(address(this), address(this), address(this), 100 ether, 75 ether);
+
+        (
+            uint256 assets, 
+            uint256 liabilities, 
+            uint256 credit, 
+            uint256 creditLine
+        ) = vault.calculateAssetsAndLiabilities(0);
+
+        assertEq(assets, 100 ether);
+        assertEq(liabilities, 0);
+        assertEq(credit, 25 ether);
+        assertEq(creditLine, 25 ether);
+    }
+
+    function test_calculateAssetsAndLiabilities_revertsOnInsufficientAssets() public {
+        CDPVaultWrapper vault = _createVaultWrapper({
+            protocolFee: 2.1 ether,
+            targetUtilizationRatio: 0,
+            minInterestRate: uint64(WAD),
+            maxInterestRate: uint64(1000000021919499726),
+            targetInterestRate: uint64(1000000015353288160),
+            maxRebate: uint128(WAD),
+            rebateRate: 0,
+            baseRate: 1000000021919499726,
+            liquidationRatio : WAD
+        });
+
+        createCredit(address(this), 100 ether);
+        cdm.modifyPermission(address(vault), true);
+        vault.delegateCredit(100 ether);
+
+        token.mint(address(this), 100 ether);
+        token.approve(address(vault), 100 ether);
+        vault.deposit(address(this), 100 ether);
+        vault.modifyCollateralAndDebt(address(this), address(this), address(this), 100 ether, 100 ether);
+
+        vm.warp(block.timestamp + 365 days);
+
+        vm.expectRevert(CDPVault_TypeB.CDPVault_TypeB__calculateAssetsAndLiabilities_insufficientAssets.selector);
+        vault.calculateAssetsAndLiabilities(0);
+    }
+
+    function test_calculateRateAccumulator_staticRate(uint64 baseRate) public {
+        CDPVaultWrapper vault = _createVaultWrapper({
+            protocolFee: 2.1 ether,
+            targetUtilizationRatio: 0,
+            minInterestRate: uint64(WAD),
+            maxInterestRate: uint64(1000000021919499726),
+            targetInterestRate: uint64(1000000015353288160),
+            maxRebate: uint128(WAD),
+            rebateRate: 0,
+            baseRate: WAD,
+            liquidationRatio: 1.25 ether 
+        });
+
+        vm.warp(block.timestamp + 30 days);
+
+        uint64 maxBaseRate = 1000000021919499726;
+        // bound the baseRate between 0 and maxBaseRate
+        baseRate = uint64(bound(baseRate, WAD, maxBaseRate));
+
+        vault.setParameter("baseRate", baseRate);
+        InterestRateModel.GlobalIRS memory globalIRS = vault.getGlobalIRS();
+
+        uint64 expectedValue = uint64(wmul(
+            globalIRS.rateAccumulator,
+            wpow(uint256(baseRate), (block.timestamp - globalIRS.lastUpdated), WAD)
+        ));
+
+        uint64 rateAccumulator = vault.calculateRateAccumulator(globalIRS);
+
+        assertEq(rateAccumulator, expectedValue);
+    }
+
+    function test_calculateRateAccumulator_utilizationBasedRate_belowTarget() public {
+        CDPVaultWrapper vault = _createVaultWrapper({
+            protocolFee: 2.1 ether,
+            targetUtilizationRatio: uint64(WAD/2),
+            minInterestRate: 1000000007056502735, 
+            maxInterestRate: 1000000021919499726,
+            targetInterestRate: 1000000015353288160,
+            maxRebate: uint128(WAD),
+            rebateRate: 0,
+            baseRate: WAD,
+            liquidationRatio: 1.25 ether 
+        });
+
+        vm.warp(block.timestamp + 30 days);
+
+        // bound the baseRate between 0 and maxBaseRate
+        uint64 baseRate = type(uint64).max;
+
+        vault.setParameter("baseRate", baseRate);
+        InterestRateModel.GlobalIRS memory globalIRS = vault.getGlobalIRS();
+
+        // get the utilization based interest rate
+        uint64 interestRate = _calculateUtilizationBasedInterestRate({
+            vault: CDPVault_TypeB(address(vault)), 
+            globalIRS: globalIRS, 
+            targetUtilizationRatio: uint64(WAD/2),
+            minInterestRate: 1000000007056502735, 
+            maxInterestRate: 1000000021919499726,
+            targetInterestRate: 1000000015353288160
+        });
+
+        uint64 expectedValue = uint64(wmul(
+            globalIRS.rateAccumulator,
+            wpow(uint256(interestRate), (block.timestamp - globalIRS.lastUpdated), WAD)
+        ));
+
+        uint64 rateAccumulator = vault.calculateRateAccumulator(globalIRS);
+        assertEq(rateAccumulator, expectedValue);
+    }
+
+    function test_calculateRateAccumulator_utilizationBasedRate_aboveTarget() public {
+        CDPVaultWrapper vault = _createVaultWrapper({
+            protocolFee: 2.1 ether,
+            targetUtilizationRatio: 0.25 ether,
+            minInterestRate: 1000000007056502735, 
+            maxInterestRate: 1000000021919499726,
+            targetInterestRate: 1000000015353288160,
+            maxRebate: uint128(WAD),
+            rebateRate: 0,
+            baseRate: WAD,
+            liquidationRatio: 1 ether 
+        });
+
+        // bound the baseRate between 0 and maxBaseRate
+        uint64 baseRate = type(uint64).max;
+        vault.setParameter("baseRate", baseRate);
+        
+        // setup vault permissions in CDM
+        cdm.modifyPermission(address(vault), true);
+        cdm.setParameter(address(vault), "debtCeiling", 200 ether);
+
+        // delegate credit to vault
+        createCredit(address(this), 100 ether);
+        vault.delegateCredit(100 ether);
+
+        // create position
+        token.mint(address(this), 200 ether);
+        token.approve(address(vault), 200 ether);
+        vault.deposit(address(this), 200 ether);
+        vault.modifyCollateralAndDebt(address(this), address(this), address(this), 200 ether, 150 ether);
+
+        vm.warp(block.timestamp + 30 days);
+        InterestRateModel.GlobalIRS memory globalIRS = vault.getGlobalIRS();
+
+        // get the utilization based interest rate
+        uint64 interestRate = _calculateUtilizationBasedInterestRate({
+            vault: CDPVault_TypeB(address(vault)), 
+            globalIRS: globalIRS, 
+            targetUtilizationRatio: 0.25 ether,
+            minInterestRate: 1000000007056502735, 
+            maxInterestRate: 1000000021919499726,
+            targetInterestRate: 1000000015353288160
+        });
+
+        uint64 expectedValue = uint64(wmul(
+            globalIRS.rateAccumulator,
+            wpow(uint256(interestRate), (block.timestamp - globalIRS.lastUpdated), WAD)
+        ));
+
+        uint64 rateAccumulator = vault.calculateRateAccumulator(globalIRS);
+        assertEq(rateAccumulator, expectedValue);
+    }
+
 
     function test_claimUndelegatedCredit_simple_delegateFirst() public {
         CDPVault_TypeB vault = createCDPVault_TypeB(token, 0, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
