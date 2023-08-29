@@ -11,6 +11,7 @@ import {TestBase} from "../TestBase.sol";
 import {wmul} from "../../utils/Math.sol";
 
 import {SwapAction, SwapParams, SwapType} from "../../proxy/SwapAction.sol";
+import {JoinAction} from "../../proxy/JoinAction.sol";
 import {CDPVault, calculateDebt, calculateNormalDebt} from "../../CDPVault.sol";
 import {CDPVault_TypeA} from "../../CDPVault_TypeA.sol";
 
@@ -43,6 +44,7 @@ contract IntegrationTestBase is TestBase {
     // action contracts
     PRBProxyRegistry internal prbProxyRegistry;
     SwapAction internal swapAction;
+    JoinAction internal joinAction;
 
     // curve 3Pool
     ICurvePool curve3Pool = ICurvePool(0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7);
@@ -72,6 +74,7 @@ contract IntegrationTestBase is TestBase {
 
         prbProxyRegistry = new PRBProxyRegistry();
         swapAction = new SwapAction(ONE_INCH, balancerVault, univ3Router);
+        joinAction = new JoinAction(BALANCER_VAULT);
 
         // configure balancer pools
         stablePool = _createBalancerStablecoinPool();
@@ -84,6 +87,8 @@ contract IntegrationTestBase is TestBase {
         vm.label(address(WETH), "WETH");
         vm.label(address(curve3Pool), "Curve3Pool");
         vm.label(address(stablePool), "balancerStablePool");
+        vm.label(address(swapAction), "SwapAction");
+        vm.label(address(joinAction), "JoinAction");
 
         vm.label(address(USDC_CHAINLINK_FEED), "USDC Chainlink Feed");
         vm.label(address(USDT_CHAINLINK_FEED), "USDT Chainlink Feed");
