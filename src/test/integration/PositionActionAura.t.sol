@@ -18,7 +18,6 @@ import {PermitParams} from "../../proxy/TransferAction.sol";
 import {SwapAction, SwapParams, SwapType, SwapProtocol} from "../../proxy/SwapAction.sol";
 import {JoinAction, JoinParams} from "../../proxy/JoinAction.sol";
 import {PositionAction, LeverParams, CollateralParams} from "../../proxy/PositionAction.sol";
-import {PositionActionAura} from "../../proxy/PositionActionAura.sol";
 
 import {ApprovalType, PermitParams} from "../../proxy/TransferAction.sol";
 import {ISignatureTransfer} from "permit2/interfaces/ISignatureTransfer.sol";
