@@ -310,38 +310,6 @@ contract CDPVaultTest is TestBase {
         assertEq(vault.enteredEmergencyMode(1.25 ether, 1 ether, 1 ether, uint64(WAD), 0), false);
     }
 
-    function test_enteredEmergencyMode() public {
-        CDPVaultWrapper vault = _createVaultWrapper({
-            protocolFee: 0,
-            targetUtilizationRatio: 0,
-            minInterestRate: uint64(WAD),
-            maxInterestRate: uint64(1000000021919499726),
-            targetInterestRate: uint64(1000000015353288160),
-            maxRebate: uint128(WAD),
-            rebateRate: 0,
-            baseRate: WAD,
-            liquidationRatio : 1.25 ether
-        });
-
-        // not in emergency mode
-        assertEq(vault.paused(), false);
-        assertEq(vault.pausedAt(), 0);
-
-        // not in emergency mode
-        assertEq(vault.enteredEmergencyMode(1.25 ether, 1 ether, 0, 0, 0), false);
-        
-        // in emergency mode because collateralization ratio is too low
-        assertEq(vault.enteredEmergencyMode(1.25 ether, 1 ether, 1 ether, uint64(WAD), 0), true);
-        
-        // collateralize the vault
-        token.mint(address(this), 100 ether);
-        token.approve(address(vault), 100 ether);
-        vault.deposit(address(this), 100 ether);
-
-        // not in emergency mode because collateralization ratio is high enough
-        assertEq(vault.enteredEmergencyMode(1.25 ether, 1 ether, 1 ether, uint64(WAD), 0), false);
-    }
-
     function test_checkLimitOrder() public {
         CDPVaultWrapper vault = _createVaultWrapper({
             protocolFee: 0,
