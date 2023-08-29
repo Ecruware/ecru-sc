@@ -107,6 +107,8 @@ contract CDPVault_TypeB is CDPVault_TypeA, ICDPVault_TypeBBase {
         creditWithholder = ICDPVault_TypeB_Factory(factory).creditWithholder();
     }
 
+    /// @notice Setup permissions for the Unwinder Factory
+    /// @param unwinderFactory Address of the Unwinder Factory
     function setUnwinderFactory(address unwinderFactory) onlyRole(DEFAULT_ADMIN_ROLE) public virtual {
         // approve CDPVaultUnwinderFactory to transfer all the tokens and credit out of this contract
         token.safeApprove(unwinderFactory, type(uint256).max);

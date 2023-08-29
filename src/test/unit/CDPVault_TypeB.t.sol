@@ -70,6 +70,7 @@ contract CDPVaultWrapper is CDPVault_TypeB {
     }
 }
 
+// CDPVault_TypeB wrapper contract to test internal methods
 contract VaultWrapperFactory {
     ICDM private cdm;
     IOracle private oracle;
@@ -277,7 +278,7 @@ contract CDPVaultTest is TestBase {
                             TEST FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    function test_enteredEmergencyMode_1() public {
+    function test_enteredEmergencyMode() public {
         CDPVaultWrapper vault = _createVaultWrapper({
             protocolFee: 0,
             targetUtilizationRatio: 0,
