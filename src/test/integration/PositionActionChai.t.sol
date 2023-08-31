@@ -76,7 +76,7 @@ contract PositionActionChaiTest is IntegrationTestBase {
         userProxy = PRBProxy(payable(address(prbProxyRegistry.deployFor(user))));
 
         // deploy position actions
-        positionAction = new PositionActionChai(address(flashlender), address(swapAction));
+        positionAction = new PositionActionChai(address(flashlender), address(swapAction), address(joinAction));
 
         // set up variables to avoid stack too deep
         stablePoolIdArray.push(stablePoolId);
@@ -348,7 +348,8 @@ contract PositionActionChaiTest is IntegrationTestBase {
                 deadline: block.timestamp + 100,
                 args: abi.encode(stablePoolIdArray, assets)
             }),
-            auxSwap: emptySwap
+            auxSwap: emptySwap,
+            auxJoin: emptyJoin
         });
 
         uint256 expectedAmountOut = _simulateBalancerSwap(leverParams.primarySwap);
@@ -410,7 +411,8 @@ contract PositionActionChaiTest is IntegrationTestBase {
                 deadline: block.timestamp + 100,
                 args: abi.encode(stablePoolIdArray, assets)
             }),
-            auxSwap: emptySwap
+            auxSwap: emptySwap,
+            auxJoin: emptyJoin
         });
 
         uint256 expectedAmountOut = _simulateBalancerSwap(leverParams.primarySwap);
@@ -485,7 +487,8 @@ contract PositionActionChaiTest is IntegrationTestBase {
                 recipient: address(positionAction),
                 deadline: block.timestamp + 100,
                 args: abi.encode(stablePoolIdArray, auxAssets)
-            })
+            }),
+            auxJoin: emptyJoin
         });
 
         // get expected return amounts
@@ -555,7 +558,8 @@ contract PositionActionChaiTest is IntegrationTestBase {
                 deadline: block.timestamp + 100,
                 args: abi.encode(stablePoolIdArray, assets)
             }),
-            auxSwap: emptySwap
+            auxSwap: emptySwap,
+            auxJoin: emptyJoin
         });
 
         uint256 expectedAmountIn = _simulateBalancerSwap(leverParams.primarySwap);
@@ -638,7 +642,8 @@ contract PositionActionChaiTest is IntegrationTestBase {
                 recipient: address(user),
                 deadline: block.timestamp + 100,
                 args: abi.encode(stablePoolIdArray, auxAssets)
-            })
+            }),
+            auxJoin: emptyJoin
         });
 
         // first simulate the primary swap to calculate values for aux swap
@@ -755,7 +760,8 @@ contract PositionActionChaiTest is IntegrationTestBase {
                     deadline: block.timestamp + 100,
                     args: abi.encode(stablePoolIdArray, assets)
                 }),
-                auxSwap: emptySwap // no aux swap
+                auxSwap: emptySwap, // no aux swap
+                auxJoin: emptyJoin
             });
         }
 

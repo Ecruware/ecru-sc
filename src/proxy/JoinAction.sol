@@ -7,11 +7,11 @@ import {TransferAction, PermitParams} from "./TransferAction.sol";
 
 import {IVault, JoinKind, JoinPoolRequest} from "../vendor/IBalancerVault.sol";
 
-/// @notice The parameters for a swap
+/// @notice The parameters for a join
 struct JoinParams {
     bytes32 poolId;
     address[] assets;
-    // used for exact token in swaps
+    // used for exact token in joins
     // can be different from `assets` if BPT is one of the assets
     uint256[] assetsIn;
     uint256[] maxAmountsIn;

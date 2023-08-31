@@ -24,7 +24,7 @@ contract PositionActionYV is PositionAction {
                              INITIALIZATION
     //////////////////////////////////////////////////////////////*/
 
-    constructor(address flashlender_, address swapActions_) PositionAction(flashlender_, swapActions_) {}
+    constructor(address flashlender_, address swapActions_, address joinAction_) PositionAction(flashlender_, swapActions_, joinAction_) {}
 
     /*//////////////////////////////////////////////////////////////
                          VIRTUAL IMPLEMENTATION

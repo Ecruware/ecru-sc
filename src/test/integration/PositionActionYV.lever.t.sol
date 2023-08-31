@@ -87,7 +87,7 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
 
         // deploy actions
         swapAction = new SwapAction(ONE_INCH, balancerVault, univ3Router);
-        positionAction = new PositionActionYV(address(flashlender), address(swapAction));
+        positionAction = new PositionActionYV(address(flashlender), address(swapAction), address(joinAction));
 
         // configure oracle spot prices
         oracle.updateSpot(address(yvDAI), yvDAI.pricePerShare());
@@ -136,7 +136,8 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
                 deadline: block.timestamp + 100,
                 args: abi.encode(stablePoolIdArray, assets)
             }),
-            auxSwap: emptySwap // no aux swap
+            auxSwap: emptySwap, // no aux swap
+            auxJoin: emptyJoin 
         });
 
         uint256 expectedAmountOut = _simulateBalancerSwap(leverParams.primarySwap);
@@ -215,7 +216,8 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
                 deadline: block.timestamp + 100,
                 args: abi.encode(poolIds, assets)
             }),
-            auxSwap: emptySwap // no aux swap
+            auxSwap: emptySwap,
+            auxJoin: emptyJoin
         });
 
         uint256 expectedAmountOut = _simulateBalancerSwap(leverParams.primarySwap);
@@ -299,7 +301,8 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
                 deadline: block.timestamp + 100,
                 args: abi.encode(stablePoolIdArray, assets)
             }),
-            auxSwap: emptySwap
+            auxSwap: emptySwap,
+            auxJoin: emptyJoin
         });
 
         uint256 expectedAmountIn = _simulateBalancerSwap(leverParams.primarySwap);
@@ -376,7 +379,8 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
                 deadline: block.timestamp + 100,
                 args: abi.encode(stablePoolIdArray, assets)
             }),
-            auxSwap: emptySwap
+            auxSwap: emptySwap,
+            auxJoin: emptyJoin
         });
 
         uint256 expectedAmountIn = _simulateBalancerSwap(leverParams.primarySwap);
@@ -449,7 +453,8 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
                 deadline: block.timestamp + 100,
                 args: abi.encode(stablePoolIdArray, assets)
             }),
-            auxSwap: emptySwap
+            auxSwap: emptySwap,
+            auxJoin: emptyJoin
         });
 
         uint256 expectedAmountIn = _simulateBalancerSwap(leverParams.primarySwap);
@@ -535,7 +540,8 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
                     recipient: address(positionAction),
                     deadline: block.timestamp + 100,
                     args: abi.encode(auxPoolIds, auxAssets)
-                })
+                }),
+                auxJoin: emptyJoin
             });
         }
 
@@ -642,7 +648,8 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
                     recipient: address(user),
                     deadline: block.timestamp + 100,
                     args: abi.encode(auxPoolIds, auxAssets)
-                })
+                }),
+                auxJoin: emptyJoin
             });
         }
 
@@ -741,7 +748,8 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
                     recipient: address(positionAction),
                     deadline: block.timestamp + 100,
                     args: abi.encode(stablePoolIdArray, auxAssets)
-                })
+                }),
+                auxJoin: emptyJoin
             });
         }
 
@@ -846,7 +854,8 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
                     recipient: address(user),
                     deadline: block.timestamp + 100,
                     args: abi.encode(stablePoolIdArray, auxAssets)
-                })
+                }),
+                auxJoin: emptyJoin
             });
         }
 
@@ -945,7 +954,8 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
                     recipient: address(positionAction),
                     deadline: block.timestamp + 100,
                     args: abi.encode(stablePoolIdArray, auxAssets)
-                })
+                }),
+                auxJoin: emptyJoin
             });
         }
 
@@ -1050,7 +1060,8 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
                     recipient: address(user),
                     deadline: block.timestamp + 100,
                     args: abi.encode(stablePoolIdArray, auxAssets)
-                })
+                }),
+                auxJoin: emptyJoin
             });
         }
 
@@ -1131,7 +1142,8 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
                 deadline: block.timestamp + 100,
                 args: abi.encode(stablePoolIdArray, assets)
             }),
-            auxSwap: emptySwap // no aux swap
+            auxSwap: emptySwap,
+            auxJoin: emptyJoin
         });
 
         uint256 expectedAmountOut = _simulateBalancerSwap(leverParams.primarySwap);
@@ -1207,7 +1219,8 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
                 deadline: block.timestamp + 100,
                 args: abi.encode(stablePoolIdArray, assets)
             }),
-            auxSwap: emptySwap // no aux swap
+            auxSwap: emptySwap,
+            auxJoin: emptyJoin
         });
 
         uint256 expectedAmountOut = _simulateBalancerSwap(leverParams.primarySwap);
@@ -1295,7 +1308,8 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
                     deadline: block.timestamp + 100,
                     args: abi.encode(stablePoolIdArray, assets)
                 }),
-                auxSwap: emptySwap // no aux swap
+                auxSwap: emptySwap,
+                auxJoin: emptyJoin
             });
         }
 

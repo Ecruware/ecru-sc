@@ -11,7 +11,7 @@ import {TestBase} from "../TestBase.sol";
 import {wmul} from "../../utils/Math.sol";
 
 import {SwapAction, SwapParams, SwapType} from "../../proxy/SwapAction.sol";
-import {JoinAction} from "../../proxy/JoinAction.sol";
+import {JoinAction, JoinParams} from "../../proxy/JoinAction.sol";
 import {CDPVault, calculateDebt, calculateNormalDebt} from "../../CDPVault.sol";
 import {CDPVault_TypeA} from "../../CDPVault_TypeA.sol";
 
@@ -35,6 +35,7 @@ contract IntegrationTestBase is TestBase {
     ERC20 constant internal USDT = ERC20(0xdAC17F958D2ee523a2206206994597C13D831ec7);
     ERC20 constant internal WETH = ERC20(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
     ERC20 constant internal OHM = ERC20(0x64aa3364F17a4D01c6f1751Fd97C2BD3D7e7f1D5); // needed for eth to dai swap
+    ERC20 constant internal WSTETH = ERC20(0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0);
 
     address constant internal USDC_CHAINLINK_FEED = 0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6;
     address constant internal USDT_CHAINLINK_FEED = 0x3E7d1eAB13ad0104d2750B8863b489D65364e32D;
@@ -56,11 +57,19 @@ contract IntegrationTestBase is TestBase {
     IBalancerVault internal constant balancerVault = IBalancerVault(BALANCER_VAULT);
     IComposableStablePoolFactory internal constant stablePoolFactory = IComposableStablePoolFactory(0x8df6EfEc5547e31B0eb7d1291B511FF8a2bf987c);
     IComposableStablePool internal stablePool;
+
+    IWeightedPoolFactory internal constant weightedPoolFactory = IWeightedPoolFactory(0x8E9aa87E45e92bad84D5F8DD1bff34Fb92637dE9);
+    IComposableStablePool internal weightedPool;
+
+    bytes32 internal weightedPoolId;
     
     bytes32 internal constant daiOhmPoolId = 0x76fcf0e8c7ff37a47a799fa2cd4c13cde0d981c90002000000000000000003d2;
     bytes32 internal constant wethOhmPoolId = 0xd1ec5e215e8148d76f4460e4097fd3d5ae0a35580002000000000000000003d3;
     bytes32 internal constant wethDaiPoolId = 0x0b09dea16768f0799065c475be02919503cb2a3500020000000000000000001a;
     bytes32 internal stablePoolId;
+
+    // Empty join params
+    JoinParams emptyJoin;
 
     // base rates
     uint256 constant internal BASE_RATE_1_0 = 1 ether; // 0% base rate
@@ -80,11 +89,14 @@ contract IntegrationTestBase is TestBase {
         stablePool = _createBalancerStablecoinPool();
         stablePoolId = stablePool.getPoolId();
         _addLiquidityToWethDaiPool();
+        weightedPool = _createBalancerStablecoinWeightedPool();
+        weightedPoolId = weightedPool.getPoolId();
 
         vm.label(address(USDC), "USDC");
         vm.label(address(DAI), "DAI");
         vm.label(address(USDT), "USDT");
         vm.label(address(WETH), "WETH");
+        vm.label(address(WSTETH), "wstETH");
         vm.label(address(curve3Pool), "Curve3Pool");
         vm.label(address(stablePool), "balancerStablePool");
         vm.label(address(swapAction), "SwapAction");
@@ -118,7 +130,6 @@ contract IntegrationTestBase is TestBase {
         vm.revertTo(snapshot);
     }
 
-    /// @dev perform balancer swap via swapParams
     function _balancerSwap(SwapParams memory swapParams) internal returns (uint256 retAmount) {
         uint256 amount = swapParams.swapType == SwapType.EXACT_IN ? swapParams.amount : swapParams.limit;
 
@@ -128,7 +139,7 @@ contract IntegrationTestBase is TestBase {
         retAmount = swapAction.swap(swapParams);
     }
 
-    /// @dev create a Stablecoin, USDC, DAI  stable pool on Balancer with deep liquidity
+    /// @dev create a Stablecoin, USDC, DAI stable pool on Balancer with deep liquidity
     function _createBalancerStablecoinPool() internal returns (IComposableStablePool stablePool_) {
 
         // mint the liquidity
@@ -178,7 +189,7 @@ contract IntegrationTestBase is TestBase {
 
         // create the pool
         stablePool_ = stablePoolFactory.create(
-            "Test Stablecoin Pool",
+            "Test Stablecoin Weighted Pool",
             "FUDT",
             assets,
             200,
@@ -198,9 +209,76 @@ contract IntegrationTestBase is TestBase {
                 fromInternalBalance: false
             })
         );
-
-
     }
+
+    function _createBalancerStablecoinWeightedPool() internal returns (IComposableStablePool pool_) {
+        // use the DAI price as the stablecoin price
+        uint256 wethLiquidityAmt = (5_000_000 * 1e18 * _getDaiRateInWeth() / 1e18);
+        deal(address(WSTETH), address(this), wethLiquidityAmt);
+        stablecoin.mint(address(this), 5_000_000 * 1e18);
+
+        uint256[] memory maxAmountsIn = new uint256[](2);
+        address[] memory assets = new address[](2);
+        assets[0] = address(WSTETH);
+        uint256[] memory weights = new uint256[](2);
+        weights[0] = 500000000000000000;
+        weights[1] = 500000000000000000;
+
+        // find the position to place stablecoin address, list is already sorted smallest to largest
+        bool stablecoinPlaced;
+        address tempAsset;
+        for (uint256 i; i < assets.length; i++) {
+            if (!stablecoinPlaced) {
+
+                // check if we can to insert stablecoin at this position
+                if (uint160(assets[i]) > uint160(address(stablecoin))) {
+                    // insert stablecoin into list
+                    stablecoinPlaced = true;
+                    tempAsset = assets[i];
+                    assets[i] = address(stablecoin);
+
+                } else if (i == assets.length - 1) {
+                    // stablecoin still not inserted, but we are at the end of the list, insert it here
+                    assets[i] = address(stablecoin);
+                }
+
+            } else {
+                // stablecoin has been inserted, move every asset index up
+                address placeholder = assets[i];
+                assets[i] = tempAsset;
+                tempAsset = placeholder;
+            }
+        }
+
+        // set maxAmountIn and approve balancer vault
+        for (uint256 i; i < assets.length; i++) {
+            maxAmountsIn[i] = ERC20(assets[i]).balanceOf(address(this));
+            ERC20(assets[i]).safeApprove(address(balancerVault), maxAmountsIn[i]);
+        }
+
+        // create the pool
+        pool_ = weightedPoolFactory.create(
+            "50WSTETH-50STABLE",
+            "50WSTETH-50STABLE",
+            assets,
+            weights,
+            3e14, // swapFee (0.03%)
+            address(this) // owner
+        );
+
+        // send liquidity to the stable pool
+        balancerVault.joinPool(
+            pool_.getPoolId(),
+            address(this),
+            address(this),
+            JoinPoolRequest({
+                assets: assets,
+                maxAmountsIn: maxAmountsIn,
+                userData: abi.encode(JoinKind.INIT, maxAmountsIn),
+                fromInternalBalance: false
+            })
+        );
+    } 
 
     /// @dev add liquidity to DAI/WETH balancer pool
     function _addLiquidityToWethDaiPool() internal  {
@@ -280,6 +358,17 @@ interface IComposableStablePoolFactory {
         string memory symbol,
         address[] memory tokens,
         uint256 amplificationParameter,
+        uint256 swapFeePercentage,
+        address owner
+    ) external returns (IComposableStablePool);
+}
+
+interface IWeightedPoolFactory {
+        function create(
+        string memory name,
+        string memory symbol,
+        address[] memory tokens,
+        uint256[] memory normalizedWeights,
         uint256 swapFeePercentage,
         address owner
     ) external returns (IComposableStablePool);

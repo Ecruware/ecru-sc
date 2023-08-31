@@ -23,7 +23,7 @@ contract PositionAction4626 is PositionAction {
                              INITIALIZATION
     //////////////////////////////////////////////////////////////*/
 
-    constructor(address flashlender_, address swapActions_) PositionAction(flashlender_, swapActions_) {}
+    constructor(address flashlender_, address swapActions_, address joinAction_) PositionAction(flashlender_, swapActions_, joinAction_) {}
 
     /*//////////////////////////////////////////////////////////////
                          VIRTUAL IMPLEMENTATION
@@ -87,7 +87,14 @@ contract PositionAction4626 is PositionAction {
             // otherwise treat as the ERC4626 underlying
             addCollateralAmount += upFrontAmount;
         }
-        
+
+        // join into the pool if needed
+        if (leverParams.auxJoin.poolId != bytes32(0)) {
+            _delegateCall(
+                address(joinAction), abi.encodeWithSelector(joinAction.join.selector, leverParams.auxJoin)
+            );
+        }
+
         // deposit into the ERC4626 vault
         address underlyingToken = IERC4626(leverParams.collateralToken).asset();
         IERC20(underlyingToken).forceApprove(leverParams.collateralToken, addCollateralAmount);
