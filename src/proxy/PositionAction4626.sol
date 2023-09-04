@@ -65,7 +65,6 @@ contract PositionAction4626 is PositionAction {
         return collateralWithdrawn;
     }
 
-
     /// @notice Hook to decrease lever by depositing collateral into the Yearn Vault and the Yearn Vault
     /// @param leverParams LeverParams struct
     /// @param upFrontToken the token passed up front

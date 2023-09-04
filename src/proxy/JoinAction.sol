@@ -50,7 +50,6 @@ contract JoinAction is TransferAction {
             for (uint256 i = 0; i < joinParams.assets.length;){
                 if (joinParams.maxAmountsIn[i] != 0) {
                     _transferFrom(joinParams.assets[i], from, address(this), joinParams.maxAmountsIn[i], permitParams);
-                    break;
                 }
                 
                 unchecked {
@@ -65,7 +64,6 @@ contract JoinAction is TransferAction {
         for (uint256 i = 0; i < joinParams.assets.length;){
             if (joinParams.maxAmountsIn[i] != 0) {
                 IERC20(joinParams.assets[i]).forceApprove(address(balancerVault), joinParams.maxAmountsIn[i]);
-                break;
             }
 
             unchecked {

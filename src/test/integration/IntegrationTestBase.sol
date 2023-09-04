@@ -213,7 +213,7 @@ contract IntegrationTestBase is TestBase {
 
     function _createBalancerStablecoinWeightedPool() internal returns (IComposableStablePool pool_) {
         // use the DAI price as the stablecoin price
-        uint256 wethLiquidityAmt = (5_000_000 * 1e18 * _getDaiRateInWeth() / 1e18);
+        uint256 wethLiquidityAmt = 5_000_000 ether;
         deal(address(WSTETH), address(this), wethLiquidityAmt);
         stablecoin.mint(address(this), 5_000_000 * 1e18);
 

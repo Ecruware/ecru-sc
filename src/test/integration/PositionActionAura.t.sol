@@ -101,9 +101,9 @@ contract PositionActionAuraTest is IntegrationTestBase {
         vault.addLimitPriceTick(1 ether, 0);
 
         // configure oracle spot prices
-        oracle.updateSpot(address(wstETH_bb_a_WETH_BPTl), _getWethRateInDai());
-        oracle.updateSpot(address(rewardToken), _getWethRateInDai());
-        oracle.updateSpot(address(auraVault), _getWethRateInDai());
+        oracle.updateSpot(address(wstETH_bb_a_WETH_BPTl), WAD);
+        oracle.updateSpot(address(rewardToken), WAD);
+        oracle.updateSpot(address(auraVault), WAD);
 
         // configure vaults
         cdm.setParameter(address(vault), "debtCeiling", 5_000_000 ether);
@@ -175,6 +175,8 @@ contract PositionActionAuraTest is IntegrationTestBase {
                 joinParams
             )
         );
+
+        // check the join action worked
     }
 
     function test_joinAndDeposit() public {
@@ -234,10 +236,10 @@ contract PositionActionAuraTest is IntegrationTestBase {
         assertEq(collateral, depositAmount);
     }
 
-    function test_increaseLever() public {
-        uint256 upFrontUnderliers = 50 ether;
+    function test_increaseLever_balancerToken_upfront() public {
+        uint256 upFrontUnderliers = 20000 ether;
         uint256 borrowAmount = 70000 ether;
-        uint256 amountOutMin = 69000 ether * _getDaiRateInWeth() / 1e18;
+        uint256 amountOutMin = 69000 ether;
 
         (JoinParams memory joinParams, ) = _getJoinActionParams(address(positionAction), amountOutMin);
 
@@ -279,6 +281,71 @@ contract PositionActionAuraTest is IntegrationTestBase {
                 positionAction.increaseLever.selector,
                 leverParams,
                 address(wstETH_bb_a_WETH_BPTl),
+                upFrontUnderliers,
+                address(user),
+                emptyPermitParams
+            )
+        );
+
+        (uint256 collateral, uint256 normalDebt) = vault.positions(address(userProxy));
+        // assert that collateral is now equal to the upFrontAmount + the amount received from the join
+        assertEq(collateral, expectedAmountIn + upFrontUnderliers);
+
+        // assert normalDebt is the same as the amount of stablecoin borrowed
+        assertEq(normalDebt, borrowAmount);
+
+        // assert leverAction position is empty
+        (uint256 lcollateral, uint256 lnormalDebt) = vault.positions(address(positionAction));
+        assertEq(lcollateral, 0);
+        assertEq(lnormalDebt, 0);
+
+    }
+
+    function test_increaseLever_balancerUnderlier_upfront() public {
+        uint256 upFrontUnderliers = 20000 ether;
+        uint256 borrowAmount = 70000 ether;
+        uint256 amountOutMin = 69000 ether;
+
+        (JoinParams memory joinParams, ) = _getJoinActionParams(address(positionAction), amountOutMin + upFrontUnderliers);
+
+        deal(address(wstETH), user, upFrontUnderliers);
+
+        // build increase lever params
+        address[] memory assets = new address[](2);
+        assets[0] = address(stablecoin);
+        assets[1] = address(wstETH);
+
+        LeverParams memory leverParams = LeverParams({
+            position: address(userProxy),
+            vault: address(vault),
+            collateralToken: address(auraVault),
+            primarySwap: SwapParams({
+                swapProtocol: SwapProtocol.BALANCER,
+                swapType: SwapType.EXACT_IN,
+                assetIn: address(stablecoin),
+                amount: borrowAmount,
+                limit: amountOutMin,
+                recipient: address(positionAction),
+                deadline: block.timestamp + 100,
+                args: abi.encode(weightedPoolIdArray, assets)
+            }),
+            auxSwap: emptySwap,
+            auxJoin: joinParams
+        });
+
+        uint256 expectedAmountIn = _simulateBalancerSwap(leverParams.primarySwap);
+
+        vm.prank(user);
+        ERC20(wstETH).approve(address(userProxy), upFrontUnderliers);
+
+        // call increaseLever
+        vm.prank(user);
+        userProxy.execute(
+            address(positionAction),
+            abi.encodeWithSelector(
+                positionAction.increaseLever.selector,
+                leverParams,
+                address(wstETH),
                 upFrontUnderliers,
                 address(user),
                 emptyPermitParams
