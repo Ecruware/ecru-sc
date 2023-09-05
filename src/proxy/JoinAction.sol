@@ -7,8 +7,14 @@ import {TransferAction, PermitParams} from "./TransferAction.sol";
 
 import {IVault, JoinKind, JoinPoolRequest} from "../vendor/IBalancerVault.sol";
 
+/// @notice The join protocol to use
+enum JoinProtocol {
+    BALANCER
+}
+
 /// @notice The parameters for a join
 struct JoinParams {
+    JoinProtocol protocol;
     bytes32 poolId;
     address[] assets;
     // used for exact token in joins
@@ -32,6 +38,17 @@ contract JoinAction is TransferAction {
 
     /// @notice Balancer v2 Vault
     IVault public immutable balancerVault;
+
+    /*//////////////////////////////////////////////////////////////
+                                 ERRORS
+    //////////////////////////////////////////////////////////////*/
+
+    error JoinAction__join_unsupportedProtocol();
+    error JoinAction__transferAndJoin_invalidPermitParams();
+
+    /*//////////////////////////////////////////////////////////////
+                             INITIALIZATION
+    //////////////////////////////////////////////////////////////*/
     
     constructor(address balancerVault_) {
         balancerVault = IVault(balancerVault_);
@@ -41,15 +58,27 @@ contract JoinAction is TransferAction {
                              JOIN VARIANTS
     //////////////////////////////////////////////////////////////*/
 
+    /// @notice Execute a transfer from an EOA and then join via `joinParams`
+    /// @param from The address to transfer from
+    /// @param permitParams A list of parameters for the permit transfers, 
+    /// must be the same length and in the same order as `joinParams` assets
+    /// @param joinParams The parameters for the join
     function transferAndJoin(
         address from,
-        PermitParams calldata permitParams,
+        PermitParams[] calldata permitParams,
         JoinParams calldata joinParams
     ) external {
         if (from != address(this)) {
-            for (uint256 i = 0; i < joinParams.assets.length;){
+            if (
+                joinParams.assets.length != 
+                permitParams.length
+            ) {
+                revert JoinAction__transferAndJoin_invalidPermitParams();
+            }
+
+            for (uint256 i = 0; i < joinParams.assets.length;) {
                 if (joinParams.maxAmountsIn[i] != 0) {
-                    _transferFrom(joinParams.assets[i], from, address(this), joinParams.maxAmountsIn[i], permitParams);
+                    _transferFrom(joinParams.assets[i], from, address(this), joinParams.maxAmountsIn[i], permitParams[i]);
                 }
                 
                 unchecked {
@@ -57,19 +86,40 @@ contract JoinAction is TransferAction {
                 }
             }
         }
+
         join(joinParams);
     }
 
+    /// @notice Perform a join using the specified protocol
+    /// @param joinParams The parameters for the join
     function join(JoinParams memory joinParams) public {
-        for (uint256 i = 0; i < joinParams.assets.length;){
+        address approveTarget;
+        if(joinParams.protocol == JoinProtocol.BALANCER) {
+            approveTarget = address(balancerVault);
+        } else {
+            revert JoinAction__join_unsupportedProtocol();
+        }
+
+        for (uint256 i = 0; i < joinParams.assets.length;) {
             if (joinParams.maxAmountsIn[i] != 0) {
-                IERC20(joinParams.assets[i]).forceApprove(address(balancerVault), joinParams.maxAmountsIn[i]);
+                IERC20(joinParams.assets[i]).forceApprove(approveTarget, joinParams.maxAmountsIn[i]);
             }
 
             unchecked {
                 ++i;
             }
         }
+
+        if(joinParams.protocol == JoinProtocol.BALANCER) {
+            balancerJoin(joinParams);
+        }
+    }
+
+    /// @notice Perform a join using the Balancer protocol
+    /// @param joinParams The parameters for the join
+    /// @dev For more information regarding the Balancer join function check the 
+    /// documentation in {IBalancerVault}
+    function balancerJoin(JoinParams memory joinParams) public {
         balancerVault.joinPool(
             joinParams.poolId,
             address(this),

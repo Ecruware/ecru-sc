@@ -16,7 +16,7 @@ import {IntegrationTestBase} from "./IntegrationTestBase.sol";
 
 import {PermitParams} from "../../proxy/TransferAction.sol";
 import {SwapAction, SwapParams, SwapType, SwapProtocol} from "../../proxy/SwapAction.sol";
-import {JoinAction, JoinParams} from "../../proxy/JoinAction.sol";
+import {JoinAction, JoinParams, JoinProtocol} from "../../proxy/JoinAction.sol";
 import {PositionAction, LeverParams, CollateralParams} from "../../proxy/PositionAction.sol";
 
 import {ApprovalType, PermitParams} from "../../proxy/TransferAction.sol";
@@ -158,33 +158,12 @@ contract PositionActionAuraTest is IntegrationTestBase {
         assertEq(normalDebt, 0);
     }
 
-    function test_joinAction() public {
-        uint256 depositAmount = 1000 ether;
-
-        deal(wstETH, user, depositAmount);
-        deal(bbaweth, user, depositAmount);
-
-        (JoinParams memory joinParams, PermitParams memory permitParams) = _getJoinActionParams(user, depositAmount);
-        vm.startPrank(user);
-        userProxy.execute(
-            address(joinAction),
-            abi.encodeWithSelector(
-                joinAction.transferAndJoin.selector,
-                user,
-                permitParams,
-                joinParams
-            )
-        );
-
-        // check the join action worked
-    }
-
     function test_joinAndDeposit() public {
         uint256 depositAmount = 1000 ether;
 
         deal(wstETH, user, depositAmount);
 
-        (JoinParams memory joinParams, PermitParams memory permitParams) = _getJoinActionParams(user, depositAmount);
+        (JoinParams memory joinParams, PermitParams[] memory permitParams) = _getJoinActionParams(user, depositAmount);
 
         CollateralParams memory collateralParams = CollateralParams({
             targetToken: address(wstETH_bb_a_WETH_BPTl),
@@ -234,6 +213,93 @@ contract PositionActionAuraTest is IntegrationTestBase {
 
         (uint256 collateral, ) = vault.positions(address(userProxy));
         assertEq(collateral, depositAmount);
+    }
+
+    function test_joinAndDeposit_multipleTokens() public {
+        uint256 wstETHAmount = 1000 ether;
+        uint256 bbawethAmount = 1000 ether;
+
+        deal(wstETH, user, wstETHAmount);
+        deal(bbaweth, user, bbawethAmount);
+
+        JoinParams memory joinParams;
+
+        // transfer the tokens to the proxy and call join on the joinAction
+        vm.startPrank(user);
+        ERC20(wstETH).transfer(address(userProxy), wstETHAmount);
+        ERC20(bbaweth).transfer(address(userProxy), bbawethAmount);
+        vm.stopPrank();
+
+        address[] memory tokens = new address[](3);
+        tokens[0] = wstETH_bb_a_WETH_BPTl;
+        tokens[1] = wstETH;
+        tokens[2] = bbaweth;
+
+        uint256[] memory maxAmountsIn = new uint256[](3);
+        maxAmountsIn[0] = 0;
+        maxAmountsIn[1] = wstETHAmount;
+        maxAmountsIn[2] = bbawethAmount;
+
+        uint256[] memory tokensIn = new uint256[](2);
+        tokensIn[0] = wstETHAmount;
+        tokensIn[1] = bbawethAmount;
+
+        joinParams = JoinParams({
+            protocol: JoinProtocol.BALANCER,
+            poolId: poolId,
+            assets: tokens,
+            assetsIn: tokensIn,
+            maxAmountsIn: maxAmountsIn,
+            minOut: 0,
+            recipient: user
+        });
+
+        CollateralParams memory collateralParams = CollateralParams({
+            targetToken: address(wstETH_bb_a_WETH_BPTl),
+            amount: wstETHAmount + bbawethAmount,
+            collateralizer: address(user),
+            auxSwap: emptySwap
+        });
+
+        vm.startPrank(user);
+        ERC20(wstETH_bb_a_WETH_BPTl).approve(address(userProxy), wstETHAmount + bbawethAmount);
+        vm.stopPrank();
+
+        address[] memory targets = new address[](2);
+        targets[0] = address(joinAction);
+        targets[1] = address(positionAction);
+
+        bytes[] memory data = new bytes[](2);
+        data[0] = abi.encodeWithSelector(
+            joinAction.join.selector,
+            joinParams
+        );
+
+        data[1] = abi.encodeWithSelector(
+            positionAction.deposit.selector,
+            address(userProxy),
+            address(vault),
+            collateralParams,
+            emptyPermitParams
+        );
+
+        bool[] memory delegateCall = new bool[](2);
+        delegateCall[0] = true;
+        delegateCall[1] = true;
+
+        vm.prank(user);
+        userProxy.execute(
+            address(positionAction),
+            abi.encodeWithSelector(
+                positionAction.multisend.selector,
+                targets,
+                data,
+                delegateCall
+            )
+        );
+
+        (uint256 collateral, ) = vault.positions(address(userProxy));
+        assertEq(collateral, wstETHAmount + bbawethAmount);
     }
 
     function test_increaseLever_balancerToken_upfront() public {
@@ -363,12 +429,11 @@ contract PositionActionAuraTest is IntegrationTestBase {
         (uint256 lcollateral, uint256 lnormalDebt) = vault.positions(address(positionAction));
         assertEq(lcollateral, 0);
         assertEq(lnormalDebt, 0);
-
     }
 
     function _getJoinActionParams(address user_, uint256 depositAmount) view internal returns (
         JoinParams memory joinParams,
-        PermitParams memory permitParams
+        PermitParams[] memory permitParams
     ) {
         uint256 deadline = block.timestamp + 100;
         (uint8 v, bytes32 r, bytes32 s) = PermitMaker.getPermit2TransferFromSignature(
@@ -380,7 +445,14 @@ contract PositionActionAuraTest is IntegrationTestBase {
             userPk
         );
          
-        permitParams = PermitParams({
+        permitParams = new PermitParams[](3);
+
+        address[] memory tokens = new address[](3);
+        tokens[0] = wstETH_bb_a_WETH_BPTl;
+        tokens[1] = wstETH;
+        tokens[2] = bbaweth;
+
+        permitParams[1] = PermitParams({
             approvalType: ApprovalType.PERMIT2,
             approvalAmount: depositAmount,
             nonce: NONCE,
@@ -389,11 +461,6 @@ contract PositionActionAuraTest is IntegrationTestBase {
             r: r,
             s: s
         });
-
-        address[] memory tokens = new address[](3);
-        tokens[0] = wstETH_bb_a_WETH_BPTl;
-        tokens[1] = wstETH;
-        tokens[2] = bbaweth;
 
         uint256[] memory maxAmountsIn = new uint256[](3);
         maxAmountsIn[0] = 0;
@@ -405,6 +472,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
         tokensIn[1] = 0;
 
         joinParams = JoinParams({
+            protocol: JoinProtocol.BALANCER,
             poolId: poolId,
             assets: tokens,
             assetsIn: tokensIn,
