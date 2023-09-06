@@ -66,6 +66,7 @@ contract IntegrationTestBase is TestBase {
     bytes32 internal constant daiOhmPoolId = 0x76fcf0e8c7ff37a47a799fa2cd4c13cde0d981c90002000000000000000003d2;
     bytes32 internal constant wethOhmPoolId = 0xd1ec5e215e8148d76f4460e4097fd3d5ae0a35580002000000000000000003d3;
     bytes32 internal constant wethDaiPoolId = 0x0b09dea16768f0799065c475be02919503cb2a3500020000000000000000001a;
+    bytes32 internal constant wstEthWethPoolId = 0x32296969ef14eb0c6d29669c550d4a0449130230000200000000000000000080;
     bytes32 internal stablePoolId;
 
     // Empty join params

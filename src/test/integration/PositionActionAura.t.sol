@@ -373,8 +373,9 @@ contract PositionActionAuraTest is IntegrationTestBase {
         uint256 upFrontUnderliers = 20000 ether;
         uint256 borrowAmount = 70000 ether;
         uint256 amountOutMin = 69000 ether;
+        uint256 joinOutMin = 0 ether;
 
-        (JoinParams memory joinParams, ) = _getJoinActionParams(address(positionAction), 0, amountOutMin + upFrontUnderliers);
+        (JoinParams memory joinParams, ) = _getJoinActionParams(address(positionAction), 0, joinOutMin);
 
         deal(address(wstETH), user, upFrontUnderliers);
 
@@ -396,6 +397,78 @@ contract PositionActionAuraTest is IntegrationTestBase {
                 recipient: address(positionAction),
                 deadline: block.timestamp + 100,
                 args: abi.encode(weightedPoolIdArray, assets)
+            }),
+            auxSwap: emptySwap,
+            auxJoin: joinParams,
+            auxJoinToken: address(wstETH)
+        });
+
+        vm.prank(user);
+        ERC20(wstETH).approve(address(userProxy), upFrontUnderliers);
+
+        // call increaseLever
+        vm.prank(user);
+        userProxy.execute(
+            address(positionAction),
+            abi.encodeWithSelector(
+                positionAction.increaseLever.selector,
+                leverParams,
+                address(wstETH),
+                upFrontUnderliers,
+                address(user),
+                emptyPermitParams
+            )
+        );
+
+        (uint256 collateral, uint256 normalDebt) = vault.positions(address(userProxy));
+        // assert that collateral is now equal to the upFrontAmount + the amount received from the join
+        assertGe(collateral, joinOutMin + upFrontUnderliers);
+
+        // assert normalDebt is the same as the amount of stablecoin borrowed
+        assertEq(normalDebt, borrowAmount);
+
+        // assert leverAction position is empty
+        (uint256 lcollateral, uint256 lnormalDebt) = vault.positions(address(positionAction));
+        assertEq(lcollateral, 0);
+        assertEq(lnormalDebt, 0);
+    }
+
+    function test_increaseLever_multiswap() public {
+        uint256 upFrontUnderliers = 200 ether;
+        uint256 borrowAmount = 70000 ether;
+        uint256 amountOutMin = 0;
+        uint256 joinOutMin = 0 ether;
+        oracle.updateSpot(address(auraVault), _getWethRateInDai());
+
+        (JoinParams memory joinParams, ) = _getJoinActionParams(address(positionAction), 0, joinOutMin);
+
+        deal(address(wstETH), user, upFrontUnderliers);
+
+        bytes32[] memory poolIdArray = new bytes32[](3);
+        poolIdArray[0] = stablePoolId; 
+        poolIdArray[1] = wethDaiPoolId;
+        poolIdArray[2] = wstEthWethPoolId;
+
+        // build increase lever params
+        address[] memory assets = new address[](4);
+        assets[0] = address(stablecoin);
+        assets[1] = address(DAI);
+        assets[2] = address(WETH);
+        assets[3] = address(wstETH);
+
+        LeverParams memory leverParams = LeverParams({
+            position: address(userProxy),
+            vault: address(vault),
+            collateralToken: address(auraVault),
+            primarySwap: SwapParams({
+                swapProtocol: SwapProtocol.BALANCER,
+                swapType: SwapType.EXACT_IN,
+                assetIn: address(stablecoin),
+                amount: borrowAmount,
+                limit: amountOutMin,
+                recipient: address(positionAction),
+                deadline: block.timestamp + 100,
+                args: abi.encode(poolIdArray, assets)
             }),
             auxSwap: emptySwap,
             auxJoin: joinParams,
