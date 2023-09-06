@@ -137,7 +137,8 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
                 args: abi.encode(stablePoolIdArray, assets)
             }),
             auxSwap: emptySwap, // no aux swap
-            auxJoin: emptyJoin 
+            auxJoin: emptyJoin,
+            auxJoinToken: address(0) 
         });
 
         uint256 expectedAmountOut = _simulateBalancerSwap(leverParams.primarySwap);
@@ -217,7 +218,8 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
                 args: abi.encode(poolIds, assets)
             }),
             auxSwap: emptySwap,
-            auxJoin: emptyJoin
+            auxJoin: emptyJoin,
+            auxJoinToken: address(0)
         });
 
         uint256 expectedAmountOut = _simulateBalancerSwap(leverParams.primarySwap);
@@ -302,7 +304,8 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
                 args: abi.encode(stablePoolIdArray, assets)
             }),
             auxSwap: emptySwap,
-            auxJoin: emptyJoin
+            auxJoin: emptyJoin,
+            auxJoinToken: address(0)
         });
 
         uint256 expectedAmountIn = _simulateBalancerSwap(leverParams.primarySwap);
@@ -380,7 +383,8 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
                 args: abi.encode(stablePoolIdArray, assets)
             }),
             auxSwap: emptySwap,
-            auxJoin: emptyJoin
+            auxJoin: emptyJoin,
+            auxJoinToken: address(0)
         });
 
         uint256 expectedAmountIn = _simulateBalancerSwap(leverParams.primarySwap);
@@ -454,7 +458,8 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
                 args: abi.encode(stablePoolIdArray, assets)
             }),
             auxSwap: emptySwap,
-            auxJoin: emptyJoin
+            auxJoin: emptyJoin,
+            auxJoinToken: address(0)
         });
 
         uint256 expectedAmountIn = _simulateBalancerSwap(leverParams.primarySwap);
@@ -541,7 +546,8 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
                     deadline: block.timestamp + 100,
                     args: abi.encode(auxPoolIds, auxAssets)
                 }),
-                auxJoin: emptyJoin
+                auxJoin: emptyJoin,
+                auxJoinToken: address(0)
             });
         }
 
@@ -649,7 +655,8 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
                     deadline: block.timestamp + 100,
                     args: abi.encode(auxPoolIds, auxAssets)
                 }),
-                auxJoin: emptyJoin
+                auxJoin: emptyJoin,
+                auxJoinToken: address(0)
             });
         }
 
@@ -749,7 +756,8 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
                     deadline: block.timestamp + 100,
                     args: abi.encode(stablePoolIdArray, auxAssets)
                 }),
-                auxJoin: emptyJoin
+                auxJoin: emptyJoin,
+                auxJoinToken: address(0)
             });
         }
 
@@ -855,7 +863,8 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
                     deadline: block.timestamp + 100,
                     args: abi.encode(stablePoolIdArray, auxAssets)
                 }),
-                auxJoin: emptyJoin
+                auxJoin: emptyJoin,
+                auxJoinToken: address(0)
             });
         }
 
@@ -955,7 +964,8 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
                     deadline: block.timestamp + 100,
                     args: abi.encode(stablePoolIdArray, auxAssets)
                 }),
-                auxJoin: emptyJoin
+                auxJoin: emptyJoin,
+                auxJoinToken: address(0)
             });
         }
 
@@ -1061,7 +1071,8 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
                     deadline: block.timestamp + 100,
                     args: abi.encode(stablePoolIdArray, auxAssets)
                 }),
-                auxJoin: emptyJoin
+                auxJoin: emptyJoin,
+                auxJoinToken: address(0)
             });
         }
 
@@ -1143,7 +1154,8 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
                 args: abi.encode(stablePoolIdArray, assets)
             }),
             auxSwap: emptySwap,
-            auxJoin: emptyJoin
+            auxJoin: emptyJoin,
+            auxJoinToken: address(0)
         });
 
         uint256 expectedAmountOut = _simulateBalancerSwap(leverParams.primarySwap);
@@ -1220,7 +1232,8 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
                 args: abi.encode(stablePoolIdArray, assets)
             }),
             auxSwap: emptySwap,
-            auxJoin: emptyJoin
+            auxJoin: emptyJoin,
+            auxJoinToken: address(0)
         });
 
         uint256 expectedAmountOut = _simulateBalancerSwap(leverParams.primarySwap);
@@ -1309,7 +1322,8 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
                     args: abi.encode(stablePoolIdArray, assets)
                 }),
                 auxSwap: emptySwap,
-                auxJoin: emptyJoin
+                auxJoin: emptyJoin,
+                auxJoinToken: address(0)
             });
         }
 

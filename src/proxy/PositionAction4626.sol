@@ -87,15 +87,38 @@ contract PositionAction4626 is PositionAction {
             addCollateralAmount += upFrontAmount;
         }
 
+        address underlyingToken = IERC4626(leverParams.collateralToken).asset();
         // join into the pool if needed
         if (leverParams.auxJoin.poolId != bytes32(0)) {
+            uint256 len = leverParams.auxJoin.assets.length;
+            bool hasOffset = leverParams.auxJoin.assets.length != leverParams.auxJoin.assetsIn.length;
+
+            for (uint256 i = (hasOffset) ? 1 : 0; i < len;) {
+                uint256 assetInIndex = (hasOffset) ? i - 1 : i;
+                // update the join amount based on the swapOut amount
+                if (leverParams.auxJoin.assets[i] == upFrontToken) {
+                    // update the join amount to include the upfront token and the swap amount
+                    leverParams.auxJoin.maxAmountsIn[i] = addCollateralAmount;
+                    leverParams.auxJoin.assetsIn[assetInIndex] =  addCollateralAmount;
+                    break;
+                } else if (leverParams.auxJoinToken == leverParams.auxJoin.assets[i]){
+                    // update the join amount to the swap amount
+                    leverParams.auxJoin.maxAmountsIn[i] = swapAmountOut;
+                    leverParams.auxJoin.assetsIn[assetInIndex] =  swapAmountOut;
+                    break;
+                }
+                unchecked {
+                    ++i;
+                }
+            }
+
             _delegateCall(
                 address(joinAction), abi.encodeWithSelector(joinAction.join.selector, leverParams.auxJoin)
             );
+            addCollateralAmount = IERC20(underlyingToken).balanceOf(address(this));
         }
 
         // deposit into the ERC4626 vault
-        address underlyingToken = IERC4626(leverParams.collateralToken).asset();
         IERC20(underlyingToken).forceApprove(leverParams.collateralToken, addCollateralAmount);
         addCollateralAmount = IERC4626(leverParams.collateralToken).deposit(addCollateralAmount, address(this)) + upFrontCollateral;
 

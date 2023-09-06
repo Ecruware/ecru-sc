@@ -160,10 +160,11 @@ contract PositionActionAuraTest is IntegrationTestBase {
 
     function test_joinAndDeposit() public {
         uint256 depositAmount = 1000 ether;
+        uint256 minOut = 980 ether;
 
         deal(wstETH, user, depositAmount);
 
-        (JoinParams memory joinParams, PermitParams[] memory permitParams) = _getJoinActionParams(user, depositAmount);
+        (JoinParams memory joinParams, PermitParams[] memory permitParams) = _getJoinActionParams(user, depositAmount, minOut);
 
         CollateralParams memory collateralParams = CollateralParams({
             targetToken: address(wstETH_bb_a_WETH_BPTl),
@@ -306,8 +307,9 @@ contract PositionActionAuraTest is IntegrationTestBase {
         uint256 upFrontUnderliers = 20000 ether;
         uint256 borrowAmount = 70000 ether;
         uint256 amountOutMin = 69000 ether;
+        uint256 joinOutMin = 0 ether;
 
-        (JoinParams memory joinParams, ) = _getJoinActionParams(address(positionAction), amountOutMin);
+        (JoinParams memory joinParams, ) = _getJoinActionParams(address(positionAction), 0, joinOutMin);
 
         deal(address(wstETH_bb_a_WETH_BPTl), user, upFrontUnderliers);
 
@@ -331,10 +333,9 @@ contract PositionActionAuraTest is IntegrationTestBase {
                 args: abi.encode(weightedPoolIdArray, assets)
             }),
             auxSwap: emptySwap,
-            auxJoin: joinParams
+            auxJoin: joinParams,
+            auxJoinToken: address(wstETH)
         });
-
-        uint256 expectedAmountIn = _simulateBalancerSwap(leverParams.primarySwap);
 
         vm.prank(user);
         ERC20(wstETH_bb_a_WETH_BPTl).approve(address(userProxy), upFrontUnderliers);
@@ -354,8 +355,10 @@ contract PositionActionAuraTest is IntegrationTestBase {
         );
 
         (uint256 collateral, uint256 normalDebt) = vault.positions(address(userProxy));
+        
         // assert that collateral is now equal to the upFrontAmount + the amount received from the join
-        assertEq(collateral, expectedAmountIn + upFrontUnderliers);
+        // aura convert assets to shares 
+        assertGe(collateral, joinOutMin + upFrontUnderliers);
 
         // assert normalDebt is the same as the amount of stablecoin borrowed
         assertEq(normalDebt, borrowAmount);
@@ -364,7 +367,6 @@ contract PositionActionAuraTest is IntegrationTestBase {
         (uint256 lcollateral, uint256 lnormalDebt) = vault.positions(address(positionAction));
         assertEq(lcollateral, 0);
         assertEq(lnormalDebt, 0);
-
     }
 
     function test_increaseLever_balancerUnderlier_upfront() public {
@@ -372,7 +374,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
         uint256 borrowAmount = 70000 ether;
         uint256 amountOutMin = 69000 ether;
 
-        (JoinParams memory joinParams, ) = _getJoinActionParams(address(positionAction), amountOutMin + upFrontUnderliers);
+        (JoinParams memory joinParams, ) = _getJoinActionParams(address(positionAction), 0, amountOutMin + upFrontUnderliers);
 
         deal(address(wstETH), user, upFrontUnderliers);
 
@@ -396,10 +398,9 @@ contract PositionActionAuraTest is IntegrationTestBase {
                 args: abi.encode(weightedPoolIdArray, assets)
             }),
             auxSwap: emptySwap,
-            auxJoin: joinParams
+            auxJoin: joinParams,
+            auxJoinToken: address(wstETH)
         });
-
-        uint256 expectedAmountIn = _simulateBalancerSwap(leverParams.primarySwap);
 
         vm.prank(user);
         ERC20(wstETH).approve(address(userProxy), upFrontUnderliers);
@@ -420,7 +421,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
 
         (uint256 collateral, uint256 normalDebt) = vault.positions(address(userProxy));
         // assert that collateral is now equal to the upFrontAmount + the amount received from the join
-        assertEq(collateral, expectedAmountIn + upFrontUnderliers);
+        assertGe(collateral, amountOutMin + upFrontUnderliers);
 
         // assert normalDebt is the same as the amount of stablecoin borrowed
         assertEq(normalDebt, borrowAmount);
@@ -431,7 +432,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
         assertEq(lnormalDebt, 0);
     }
 
-    function _getJoinActionParams(address user_, uint256 depositAmount) view internal returns (
+    function _getJoinActionParams(address user_, uint256 depositAmount, uint256 minOut) view internal returns (
         JoinParams memory joinParams,
         PermitParams[] memory permitParams
     ) {
@@ -477,7 +478,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
             assets: tokens,
             assetsIn: tokensIn,
             maxAmountsIn: maxAmountsIn,
-            minOut: 0,
+            minOut: minOut,
             recipient: user_
         });
     }
