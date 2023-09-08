@@ -2,19 +2,15 @@
 pragma solidity ^0.8.19;
 
 import {IERC20} from "openzeppelin/contracts/token/ERC20/IERC20.sol";
-
 import {SafeERC20} from "openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {ICDPVaultBase} from "./interfaces/ICDPVault.sol";
-
 import {ICDPVault_TypeB, ICDPVault_TypeBBase} from "./interfaces/ICDPVault_TypeB.sol";
-
 import {ICDPVault_TypeB_Factory} from "./interfaces/ICDPVault_TypeB_Factory.sol";
 
 import {WAD, max, min, wmul, wdiv, toInt256} from "./utils/Math.sol";
 
 import {CDPVault_TypeA, VAULT_CONFIG_ROLE, calculateDebt} from "./CDPVault_TypeA.sol";
-
 import {getCredit, getDebt, getCreditLine} from "./CDM.sol";
 
 /// @title CDPVault_TypeB
