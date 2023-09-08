@@ -5,12 +5,13 @@ import {SafeERC20} from "openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol"
 import {ERC20} from "openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 import {PRBProxyRegistry} from "prb-proxy/PRBProxyRegistry.sol";
+import {PRBProxy} from "prb-proxy/PRBProxy.sol";
 
 import {TestBase} from "../TestBase.sol";
 
-import {wmul} from "../../utils/Math.sol";
+import {wmul, wdiv} from "../../utils/Math.sol";
 
-import {SwapAction, SwapParams, SwapType} from "../../proxy/SwapAction.sol";
+import {SwapAction, SwapParams, SwapType, SwapProtocol} from "../../proxy/SwapAction.sol";
 import {JoinAction, JoinParams} from "../../proxy/JoinAction.sol";
 import {CDPVault, calculateDebt, calculateNormalDebt} from "../../CDPVault.sol";
 import {CDPVault_TypeA} from "../../CDPVault_TypeA.sol";
@@ -41,6 +42,8 @@ contract IntegrationTestBase is TestBase {
     address constant internal USDT_CHAINLINK_FEED = 0x3E7d1eAB13ad0104d2750B8863b489D65364e32D;
     address constant internal DAI_CHAINLINK_FEED = 0xAed0c38402a5d19df6E4c03F4E2DceD6e29c1ee9;
     address constant internal LUSD_CHAINLINK_FEED = 0x3D7aE7E594f2f2091Ad8798313450130d0Aba3a0;
+    address constant internal STETH_CHAINLINK_FEED = 0xCfE54B5cD566aB89272946F602D76Ea879CAb4a8;
+    address constant internal ETH_CHAINLINK_FEED = 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419;
 
     // action contracts
     PRBProxyRegistry internal prbProxyRegistry;
@@ -181,7 +184,6 @@ contract IntegrationTestBase is TestBase {
             }
         }
 
-
         // set maxAmountIn and approve balancer vault
         for (uint256 i; i < assets.length; i++) {
             maxAmountsIn[i] = ERC20(assets[i]).balanceOf(address(this));
@@ -283,9 +285,8 @@ contract IntegrationTestBase is TestBase {
 
     /// @dev add liquidity to DAI/WETH balancer pool
     function _addLiquidityToWethDaiPool() internal  {
-        uint256 daiLiquidityAmt = 2_000_000*1e18;
-        uint256 wethLiquidityAmt = (daiLiquidityAmt * _getDaiRateInWeth() / 1e18);
-
+        uint256 daiLiquidityAmt = 2_000_000*1e18; // 40%
+        uint256 wethLiquidityAmt = (daiLiquidityAmt * _getDaiRateInWeth() * 15 / 1e19); // 60%
         deal(address(DAI), address(this), daiLiquidityAmt);
         deal(address(WETH), address(this), wethLiquidityAmt);
 
@@ -324,6 +325,54 @@ contract IntegrationTestBase is TestBase {
         return uint256(PriceFeed(0x773616E4d11A78F511299002da57A0a94577F1f4).latestAnswer());
     }
 
+    function _getWstETHRateInUSD() internal view returns (uint256) {
+        uint256 wstethAmount = IWSTETH(address(WSTETH)).tokensPerStEth();
+        uint256 stEthPrice = wdiv(uint256(PriceFeed(STETH_CHAINLINK_FEED).latestAnswer()), 10**ERC20(STETH_CHAINLINK_FEED).decimals());
+        return wmul(wstethAmount, stEthPrice);
+    }
+
+    function _getWETHRateInUSD() internal view returns (uint256) {
+        return wdiv(uint256(PriceFeed(ETH_CHAINLINK_FEED).latestAnswer()), 10**ERC20(ETH_CHAINLINK_FEED).decimals());
+    }
+
+    function _getStablecoinRateInUSD() internal returns (uint256) {
+        bytes32[] memory stablePoolIdArray = new bytes32[](1);
+        stablePoolIdArray[0] = stablePoolId;
+
+        address[] memory assets = new address[](2);
+        assets[0] = address(stablecoin);
+        assets[1] = address(DAI);
+
+        address user = vm.addr(uint256(keccak256("DummyUser"))); 
+        PRBProxy userProxy = PRBProxy(payable(address(prbProxyRegistry.getProxy(user)))); 
+        if(address(userProxy) == address(0)){
+            userProxy = PRBProxy(payable(address(prbProxyRegistry.deployFor(user))));
+        }
+            
+        vm.startPrank(user);
+        deal(address(stablecoin), address(userProxy), 1e18);
+        SwapParams memory swapParams = SwapParams({
+            swapProtocol: SwapProtocol.BALANCER,
+            swapType: SwapType.EXACT_IN,
+            assetIn: address(stablecoin),
+            amount: 1e18,
+            limit: 0.9e18,
+            recipient: address(user),
+            deadline: block.timestamp + 100,
+            args: abi.encode(stablePoolIdArray, assets)
+        });
+
+        bytes memory response = userProxy.execute(
+            address(swapAction),
+            abi.encodeWithSelector(swapAction.swap.selector, swapParams)
+        );
+        vm.stopPrank();
+        uint256 amountOut = abi.decode(response, (uint256));
+
+        uint256 daiPrice = wdiv(uint256(PriceFeed(DAI_CHAINLINK_FEED).latestAnswer()), 10**ERC20(DAI_CHAINLINK_FEED).decimals());
+        return wmul(amountOut, daiPrice);
+    }
+
     function _virtualDebt(CDPVault_TypeA vault, address position) internal view returns (uint256) {
         (, uint256 normalDebt) = vault.positions(position);
         (uint64 rateAccumulator, uint256 accruedRebate, ) = vault.virtualIRS(position);
@@ -344,7 +393,21 @@ contract IntegrationTestBase is TestBase {
         (uint64 rateAccumulator, uint256 accruedRebate,) = CDPVault(vault).virtualIRS(position);
         return calculateDebt(normalDebt, rateAccumulator, accruedRebate);
     }
+}
 
+/// ======== WSTETH INTERFACES ======== ///
+interface IWSTETH {
+    /**
+     * @notice Get amount of stETH for a one wstETH
+     * @return Amount of stETH for 1 wstETH
+     */
+    function stEthPerToken() external view returns (uint256);
+
+    /**
+     * @notice Get amount of wstETH for a one stETH
+     * @return Amount of wstETH for a 1 stETH
+     */
+    function tokensPerStEth() external view returns (uint256);
 }
 
 /// ======== BALANCER INTERFACES ======== ///

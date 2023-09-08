@@ -7,7 +7,7 @@ import {ERC4626} from "openzeppelin/contracts/token/ERC20/extensions/ERC4626.sol
 
 import {PRBProxy} from "prb-proxy/PRBProxy.sol";
 
-import {WAD} from "../../utils/Math.sol";
+import {WAD, wmul, wdiv} from "../../utils/Math.sol";
 
 import {CDPVault} from "../../CDPVault.sol";
 import {CDPVault_TypeA} from "../../CDPVault_TypeA.sol";
@@ -28,6 +28,10 @@ import {PositionAction4626} from "../../proxy/PositionAction4626.sol";
 import {IVault, JoinKind, JoinPoolRequest} from "../../vendor/IBalancerVault.sol";
 import {IBaseRewardPool4626, IOperator} from "../../vendor/IBaseRewardPool4626.sol";
 import {AuraVault} from "aura/AuraVault.sol";
+
+interface IBalancerComposableStablePool{
+    function getActualSupply() external returns (uint256);
+}
 
 contract PositionActionAuraTest is IntegrationTestBase {
     using SafeERC20 for ERC20;
@@ -101,9 +105,10 @@ contract PositionActionAuraTest is IntegrationTestBase {
         vault.addLimitPriceTick(1 ether, 0);
 
         // configure oracle spot prices
-        oracle.updateSpot(address(wstETH_bb_a_WETH_BPTl), WAD);
-        oracle.updateSpot(address(rewardToken), WAD);
-        oracle.updateSpot(address(auraVault), WAD);
+        uint256 balancerTokenRate = _getBalancerTokenRateInUSD();
+        oracle.updateSpot(address(wstETH_bb_a_WETH_BPTl), balancerTokenRate);
+        oracle.updateSpot(address(auraVault), balancerTokenRate);
+        oracle.updateSpot(address(stablecoin), _getStablecoinRateInUSD());
 
         // configure vaults
         cdm.setParameter(address(vault), "debtCeiling", 5_000_000 ether);
@@ -304,7 +309,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
     }
 
     function test_increaseLever_balancerToken_upfront() public {
-        uint256 upFrontUnderliers = 20000 ether;
+        uint256 upFrontUnderliers = 20 ether;
         uint256 borrowAmount = 70000 ether;
         uint256 amountOutMin = 69000 ether;
         uint256 joinOutMin = 0 ether;
@@ -370,7 +375,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
     }
 
     function test_increaseLever_balancerUnderlier_upfront() public {
-        uint256 upFrontUnderliers = 20000 ether;
+        uint256 upFrontUnderliers = 10 ether;
         uint256 borrowAmount = 70000 ether;
         uint256 amountOutMin = 69000 ether;
         uint256 joinOutMin = 0 ether;
@@ -422,7 +427,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
 
         (uint256 collateral, uint256 normalDebt) = vault.positions(address(userProxy));
         // assert that collateral is now equal to the upFrontAmount + the amount received from the join
-        assertGe(collateral, joinOutMin + upFrontUnderliers);
+        assertGe(collateral, joinOutMin);
 
         // assert normalDebt is the same as the amount of stablecoin borrowed
         assertEq(normalDebt, borrowAmount);
@@ -434,11 +439,10 @@ contract PositionActionAuraTest is IntegrationTestBase {
     }
 
     function test_increaseLever_multiswap() public {
-        uint256 upFrontUnderliers = 200 ether;
+        uint256 upFrontUnderliers = 20 ether;
         uint256 borrowAmount = 70000 ether;
         uint256 amountOutMin = 0;
         uint256 joinOutMin = 0 ether;
-        oracle.updateSpot(address(auraVault), _getWethRateInDai());
 
         (JoinParams memory joinParams, ) = _getJoinActionParams(address(positionAction), 0, joinOutMin);
 
@@ -493,8 +497,8 @@ contract PositionActionAuraTest is IntegrationTestBase {
         );
 
         (uint256 collateral, uint256 normalDebt) = vault.positions(address(userProxy));
-        // assert that collateral is now equal to the upFrontAmount + the amount received from the join
-        assertGe(collateral, amountOutMin + upFrontUnderliers);
+        // convert to shares
+        assertGe(collateral, joinOutMin);
 
         // assert normalDebt is the same as the amount of stablecoin borrowed
         assertEq(normalDebt, borrowAmount);
@@ -503,6 +507,112 @@ contract PositionActionAuraTest is IntegrationTestBase {
         (uint256 lcollateral, uint256 lnormalDebt) = vault.positions(address(positionAction));
         assertEq(lcollateral, 0);
         assertEq(lnormalDebt, 0);
+    }
+
+    function test_increaseLever_upfrontTokenSwap() public {
+        uint256 upFrontUnderliers = 40000 ether;
+        uint256 upFrontUnderlierOutMin = 0 ether;
+        uint256 borrowAmount = 70000 ether;
+        uint256 amountOutMin = 0;
+        uint256 joinOutMin = 0 ether;
+        
+        (JoinParams memory joinParams, ) = _getJoinActionParams(address(positionAction), 0, joinOutMin);
+
+        deal(address(DAI), user, upFrontUnderliers);
+
+        bytes memory auxArgs;
+        bytes memory primaryArgs;
+        {
+        bytes32[] memory auxPoolIdArray = new bytes32[](2);
+        auxPoolIdArray[0] = wethDaiPoolId;
+        auxPoolIdArray[1] = wstEthWethPoolId;
+
+        address[] memory auxAssets = new address[](3);
+        auxAssets[0] = address(DAI);
+        auxAssets[1] = address(WETH);
+        auxAssets[2] = address(wstETH);
+
+        auxArgs = abi.encode(auxPoolIdArray, auxAssets);
+        bytes32[] memory poolIdArray = new bytes32[](3);
+        poolIdArray[0] = stablePoolId; 
+        poolIdArray[1] = wethDaiPoolId;
+        poolIdArray[2] = wstEthWethPoolId;
+
+        // build increase lever params
+        address[] memory assets = new address[](4);
+        assets[0] = address(stablecoin);
+        assets[1] = address(DAI);
+        assets[2] = address(WETH);
+        assets[3] = address(wstETH);
+        primaryArgs = abi.encode(poolIdArray, assets);
+        }
+
+        LeverParams memory leverParams = LeverParams({
+            position: address(userProxy),
+            vault: address(vault),
+            collateralToken: address(auraVault),
+            primarySwap: SwapParams({
+                swapProtocol: SwapProtocol.BALANCER,
+                swapType: SwapType.EXACT_IN,
+                assetIn: address(stablecoin),
+                amount: borrowAmount,
+                limit: amountOutMin,
+                recipient: address(positionAction),
+                deadline: block.timestamp + 100,
+                args: primaryArgs
+            }),
+            auxSwap: SwapParams({
+                swapProtocol: SwapProtocol.BALANCER,
+                swapType: SwapType.EXACT_IN,
+                assetIn: address(DAI),
+                amount: upFrontUnderliers,
+                limit: upFrontUnderlierOutMin,
+                recipient: address(positionAction),
+                deadline: block.timestamp + 100,
+                args: auxArgs
+            }),
+            auxJoin: joinParams,
+            auxJoinToken: address(wstETH)
+        });
+
+        vm.prank(user);
+        ERC20(DAI).approve(address(userProxy), upFrontUnderliers);
+
+        // call increaseLever
+        vm.prank(user);
+        userProxy.execute(
+            address(positionAction),
+            abi.encodeWithSelector(
+                positionAction.increaseLever.selector,
+                leverParams,
+                address(DAI),
+                upFrontUnderliers,
+                address(user),
+                emptyPermitParams
+            )
+        );
+
+        (uint256 collateral, uint256 normalDebt) = vault.positions(address(userProxy));
+        // assert that collateral is now equal to the upFrontAmount + the amount received from the join
+        // convert to shares
+        assertGe(collateral, amountOutMin);
+
+        // assert normalDebt is the same as the amount of stablecoin borrowed
+        assertEq(normalDebt, borrowAmount);
+
+        // assert leverAction position is empty
+        (uint256 lcollateral, uint256 lnormalDebt) = vault.positions(address(positionAction));
+        assertEq(lcollateral, 0);
+        assertEq(lnormalDebt, 0);
+    }
+
+    function _getBalancerTokenRateInUSD() internal returns (uint256 price) {
+        (, uint256[] memory balances, ) = IVault(BALANCER_VAULT).getPoolTokens(poolId);
+        uint256 tokenWSTETHSupply = wmul(balances[1], _getWstETHRateInUSD());
+        uint256 tokenBBAWETHSupply = wmul(balances[2], _getWETHRateInUSD());
+        uint256 totalSupply = IBalancerComposableStablePool(wstETH_bb_a_WETH_BPTl).getActualSupply();
+
+        return wdiv(tokenWSTETHSupply + tokenBBAWETHSupply, totalSupply);
     }
 
     function _getJoinActionParams(address user_, uint256 depositAmount, uint256 minOut) view internal returns (

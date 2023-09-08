@@ -92,7 +92,6 @@ contract PositionAction4626 is PositionAction {
         if (leverParams.auxJoin.poolId != bytes32(0)) {
             uint256 len = leverParams.auxJoin.assets.length;
             bool hasOffset = leverParams.auxJoin.assets.length != leverParams.auxJoin.assetsIn.length;
-
             for (uint256 i = (hasOffset) ? 1 : 0; i < len;) {
                 uint256 assetInIndex = (hasOffset) ? i - 1 : i;
                 // update the join amount based on the swapOut amount
@@ -103,8 +102,13 @@ contract PositionAction4626 is PositionAction {
                     break;
                 } else if (leverParams.auxJoinToken == leverParams.auxJoin.assets[i]){
                     // update the join amount to the swap amount
-                    leverParams.auxJoin.maxAmountsIn[i] = swapAmountOut;
-                    leverParams.auxJoin.assetsIn[assetInIndex] =  swapAmountOut;
+                    if(leverParams.auxSwap.assetIn == address(0)){
+                        leverParams.auxJoin.maxAmountsIn[i] = swapAmountOut;
+                        leverParams.auxJoin.assetsIn[assetInIndex] =  swapAmountOut;
+                    } else {
+                        leverParams.auxJoin.maxAmountsIn[i] = addCollateralAmount;
+                        leverParams.auxJoin.assetsIn[assetInIndex] =  addCollateralAmount;
+                    }
                     break;
                 }
                 unchecked {
