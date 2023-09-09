@@ -20,7 +20,6 @@ import {PermitMaker} from "../utils/PermitMaker.sol";
 import {PositionAction4626} from "../../proxy/PositionAction4626.sol";
 
 import {IVault, JoinKind, JoinPoolRequest} from "../../vendor/IBalancerVault.sol";
-import {IBaseRewardPool4626, IOperator} from "../../vendor/IBaseRewardPool4626.sol";
 
 contract JoinActionTest is IntegrationTestBase {
     using SafeERC20 for ERC20;

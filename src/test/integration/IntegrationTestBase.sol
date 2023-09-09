@@ -134,6 +134,7 @@ contract IntegrationTestBase is TestBase {
         vm.revertTo(snapshot);
     }
 
+    /// @dev perform balancer swap via swapParams
     function _balancerSwap(SwapParams memory swapParams) internal returns (uint256 retAmount) {
         uint256 amount = swapParams.swapType == SwapType.EXACT_IN ? swapParams.amount : swapParams.limit;
 
@@ -192,7 +193,7 @@ contract IntegrationTestBase is TestBase {
 
         // create the pool
         stablePool_ = stablePoolFactory.create(
-            "Test Stablecoin Weighted Pool",
+            "Test Stablecoin Pool",
             "FUDT",
             assets,
             200,

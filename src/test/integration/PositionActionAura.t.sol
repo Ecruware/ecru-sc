@@ -4,29 +4,20 @@ pragma solidity ^0.8.19;
 import {SafeERC20} from "openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ERC20} from "openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ERC4626} from "openzeppelin/contracts/token/ERC20/extensions/ERC4626.sol";
-
 import {PRBProxy} from "prb-proxy/PRBProxy.sol";
-
 import {WAD, wmul, wdiv} from "../../utils/Math.sol";
-
 import {CDPVault} from "../../CDPVault.sol";
 import {CDPVault_TypeA} from "../../CDPVault_TypeA.sol";
-
 import {IntegrationTestBase} from "./IntegrationTestBase.sol";
-
 import {PermitParams} from "../../proxy/TransferAction.sol";
 import {SwapAction, SwapParams, SwapType, SwapProtocol} from "../../proxy/SwapAction.sol";
 import {JoinAction, JoinParams, JoinProtocol} from "../../proxy/JoinAction.sol";
 import {PositionAction, LeverParams, CollateralParams} from "../../proxy/PositionAction.sol";
-
 import {ApprovalType, PermitParams} from "../../proxy/TransferAction.sol";
 import {ISignatureTransfer} from "permit2/interfaces/ISignatureTransfer.sol";
 import {PermitMaker} from "../utils/PermitMaker.sol";
 import {PositionAction4626} from "../../proxy/PositionAction4626.sol";
-
-// temp stuff
-import {IVault, JoinKind, JoinPoolRequest} from "../../vendor/IBalancerVault.sol";
-import {IBaseRewardPool4626, IOperator} from "../../vendor/IBaseRewardPool4626.sol";
+import {IVault} from "../../vendor/IBalancerVault.sol";
 import {AuraVault} from "aura/AuraVault.sol";
 
 interface IBalancerComposableStablePool{
