@@ -132,4 +132,45 @@ contract JoinAction is TransferAction {
             })
         );
     }
+
+    /// @notice Helper function to update the join parameters for a levered position
+    /// @param joinParams The parameters for the join
+    /// @param upFrontToken The upfront token for the levered position
+    /// @param joinToken The token to join with
+    /// @param flashLoanAmount The amount of the flash loan
+    /// @param upfrontAmount The amount of the upfront token
+    function updateLeverJoin(
+        JoinParams memory joinParams, 
+        address upFrontToken, 
+        address joinToken,
+        uint256 flashLoanAmount,
+        uint256 upfrontAmount
+    ) external pure returns (JoinParams memory outParams) {
+        outParams = joinParams;
+        
+        if (joinParams.protocol == JoinProtocol.BALANCER) {
+            uint256 len = joinParams.assets.length;
+            // the offset is needed because of the BPT token that needs to be skipped from the join
+            bool hasOffset = len != joinParams.assetsIn.length;
+            uint256 totalAmount = flashLoanAmount + upfrontAmount;
+
+            for (uint256 i = hasOffset ? 1 : 0; i < len;) {
+                uint256 assetInIndex = i - (hasOffset ? 1 : 0);
+                
+                if (joinParams.assets[i] == upFrontToken) {
+                    outParams.maxAmountsIn[i] = totalAmount;
+                    outParams.assetsIn[assetInIndex] = totalAmount;
+                    break;
+                } else if (joinToken == joinParams.assets[i]){
+                    outParams.maxAmountsIn[i] = flashLoanAmount;
+                    outParams.assetsIn[assetInIndex] = flashLoanAmount;
+                    break;
+                }
+                unchecked {
+                    i++;
+                }
+            }
+        }
+    }
+
 }

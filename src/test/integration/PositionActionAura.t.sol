@@ -224,6 +224,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
     function test_joinAndDeposit_multipleTokens() public {
         uint256 wstETHAmount = 1000 ether;
         uint256 bbawethAmount = 1000 ether;
+        uint256 joinMinOut = (wstETHAmount + bbawethAmount)*90/100;
 
         deal(wstETH, user, wstETHAmount);
         deal(bbaweth, user, bbawethAmount);
@@ -256,7 +257,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
             assets: tokens,
             assetsIn: tokensIn,
             maxAmountsIn: maxAmountsIn,
-            minOut: 0,
+            minOut: joinMinOut,
             recipient: user
         });
 
@@ -305,7 +306,8 @@ contract PositionActionAuraTest is IntegrationTestBase {
         );
 
         (uint256 collateral, ) = vault.positions(address(userProxy));
-        assertEq(collateral, wstETHAmount + bbawethAmount);
+        uint256 shares = auraVault.convertToShares(joinMinOut);
+        assertGe(collateral, shares);
     }
 
     function test_increaseLever_balancerToken_upfront() public {
@@ -362,8 +364,8 @@ contract PositionActionAuraTest is IntegrationTestBase {
         (uint256 collateral, uint256 normalDebt) = vault.positions(address(userProxy));
         
         // assert that collateral is now equal to the upFrontAmount + the amount received from the join
-        // aura convert assets to shares 
-        assertGe(collateral, joinOutMin + upFrontUnderliers);
+        uint256 shares = auraVault.convertToShares(joinOutMin + upFrontUnderliers);
+        assertGe(collateral, shares);
 
         // assert normalDebt is the same as the amount of stablecoin borrowed
         assertEq(normalDebt, borrowAmount);
@@ -426,8 +428,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
         );
 
         (uint256 collateral, uint256 normalDebt) = vault.positions(address(userProxy));
-        // assert that collateral is now equal to the upFrontAmount + the amount received from the join
-        assertGe(collateral, joinOutMin);
+        assertGe(collateral, auraVault.convertToShares(joinOutMin));
 
         // assert normalDebt is the same as the amount of stablecoin borrowed
         assertEq(normalDebt, borrowAmount);
@@ -497,8 +498,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
         );
 
         (uint256 collateral, uint256 normalDebt) = vault.positions(address(userProxy));
-        // convert to shares
-        assertGe(collateral, joinOutMin);
+        assertGe(collateral, auraVault.convertToShares(joinOutMin));
 
         // assert normalDebt is the same as the amount of stablecoin borrowed
         assertEq(normalDebt, borrowAmount);
@@ -593,10 +593,8 @@ contract PositionActionAuraTest is IntegrationTestBase {
         );
 
         (uint256 collateral, uint256 normalDebt) = vault.positions(address(userProxy));
-        // assert that collateral is now equal to the upFrontAmount + the amount received from the join
-        // convert to shares
-        assertGe(collateral, amountOutMin);
-
+        assertGe(collateral, auraVault.convertToShares(joinOutMin));
+        
         // assert normalDebt is the same as the amount of stablecoin borrowed
         assertEq(normalDebt, borrowAmount);
 
@@ -606,6 +604,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
         assertEq(lnormalDebt, 0);
     }
 
+    /// @dev Helper function that returns the lp token rate in USD
     function _getBalancerTokenRateInUSD() internal returns (uint256 price) {
         (, uint256[] memory balances, ) = IVault(BALANCER_VAULT).getPoolTokens(poolId);
         uint256 tokenWSTETHSupply = wmul(balances[1], _getWstETHRateInUSD());
@@ -615,6 +614,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
         return wdiv(tokenWSTETHSupply + tokenBBAWETHSupply, totalSupply);
     }
 
+    /// @dev Helper function that returns a joinParams struct and a permitParams array for a wstETH join
     function _getJoinActionParams(address user_, uint256 depositAmount, uint256 minOut) view internal returns (
         JoinParams memory joinParams,
         PermitParams[] memory permitParams

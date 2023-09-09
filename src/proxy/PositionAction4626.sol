@@ -7,7 +7,7 @@ import {SafeERC20} from "openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol"
 
 import {ICDPVault} from "../interfaces/ICDPVault.sol";
 
-import {PositionAction, LeverParams} from "./PositionAction.sol";
+import {PositionAction, LeverParams, JoinParams} from "./PositionAction.sol";
 
 /// @title PositionAction4626
 /// @notice Generic ERC4626 implementation of PositionAction base contract
@@ -90,35 +90,22 @@ contract PositionAction4626 is PositionAction {
         address underlyingToken = IERC4626(leverParams.collateralToken).asset();
         // join into the pool if needed
         if (leverParams.auxJoin.poolId != bytes32(0)) {
-            uint256 len = leverParams.auxJoin.assets.length;
-            bool hasOffset = leverParams.auxJoin.assets.length != leverParams.auxJoin.assetsIn.length;
-            for (uint256 i = (hasOffset) ? 1 : 0; i < len;) {
-                uint256 assetInIndex = (hasOffset) ? i - 1 : i;
-                // update the join amount based on the swapOut amount
-                if (leverParams.auxJoin.assets[i] == upFrontToken) {
-                    // update the join amount to include the upfront token and the swap amount
-                    leverParams.auxJoin.maxAmountsIn[i] = addCollateralAmount;
-                    leverParams.auxJoin.assetsIn[assetInIndex] =  addCollateralAmount;
-                    break;
-                } else if (leverParams.auxJoinToken == leverParams.auxJoin.assets[i]){
-                    // update the join amount to the swap amount
-                    if(leverParams.auxSwap.assetIn == address(0)){
-                        leverParams.auxJoin.maxAmountsIn[i] = swapAmountOut;
-                        leverParams.auxJoin.assetsIn[assetInIndex] =  swapAmountOut;
-                    } else {
-                        leverParams.auxJoin.maxAmountsIn[i] = addCollateralAmount;
-                        leverParams.auxJoin.assetsIn[assetInIndex] =  addCollateralAmount;
-                    }
-                    break;
-                }
-                unchecked {
-                    ++i;
-                }
-            }
+            address joinUpfrontToken = (leverParams.auxSwap.assetIn == address(0)) ? upFrontToken : leverParams.auxJoinToken;
+
+            // update the join parameters with the new amounts
+            JoinParams memory joinParams = joinAction.updateLeverJoin(
+                leverParams.auxJoin, 
+                joinUpfrontToken, 
+                leverParams.auxJoinToken, 
+                swapAmountOut, 
+                upFrontAmount
+            );
 
             _delegateCall(
-                address(joinAction), abi.encodeWithSelector(joinAction.join.selector, leverParams.auxJoin)
+                address(joinAction), abi.encodeWithSelector(joinAction.join.selector, joinParams)
             );
+
+            // retrieve the total amount of collateral after the join
             addCollateralAmount = IERC20(underlyingToken).balanceOf(address(this));
         }
 
