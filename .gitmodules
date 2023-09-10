@@ -13,6 +13,3 @@
 [submodule "lib/prb-proxy"]
 	path = lib/prb-proxy
 	url = https://github.com/PaulRBerg/prb-proxy
-[submodule "lib/aura-vault"]
-	path = lib/aura-vault
-	url = https://github.com/Ecruware/aura-vault
