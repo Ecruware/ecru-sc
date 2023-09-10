@@ -3,4 +3,3 @@ openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contr
 permit2/=lib/permit2/src/
 forge-std/=lib/forge-std/src/
 prb-proxy/=lib/prb-proxy/src/
-aura/=lib/aura-vault/src/

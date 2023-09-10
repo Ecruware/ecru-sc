@@ -757,7 +757,7 @@ abstract contract CDPVault is AccessControl, Pause, Permission, InterestRateMode
 
     /// @notice Returns the current spot price of the collateral token
     /// @return _ Current spot price of the collateral token [wad]
-    function spotPrice() public returns (uint256) {
+    function spotPrice() public view returns (uint256) {
         return oracle.spot(address(token));
     }
 

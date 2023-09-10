@@ -282,7 +282,7 @@ contract CDPVaultUnwinder is ICDPVaultUnwinder {
                              AUCTION PHASE
     //////////////////////////////////////////////////////////////*/
 
-    function _getStartPrice(uint256 collateral, uint256 totalDebt_) private returns (uint160 price) {
+    function _getStartPrice(uint256 collateral, uint256 totalDebt_) private view returns (uint160 price) {
         IOracle oracle = vault.oracle();
         if (address(oracle).code.length > 0) {
             try vault.oracle().spot(address(token)) returns (uint256 price_) {

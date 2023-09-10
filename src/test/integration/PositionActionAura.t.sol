@@ -18,7 +18,7 @@ import {ISignatureTransfer} from "permit2/interfaces/ISignatureTransfer.sol";
 import {PermitMaker} from "../utils/PermitMaker.sol";
 import {PositionAction4626} from "../../proxy/PositionAction4626.sol";
 import {IVault} from "../../vendor/IBalancerVault.sol";
-import {AuraVault} from "aura/AuraVault.sol";
+import {AuraVault} from "../../vendor/AuraVault.sol";
 
 interface IBalancerComposableStablePool{
     function getActualSupply() external returns (uint256);

@@ -15,7 +15,7 @@ contract CDPVault_TypeAWrapper is CDPVault_TypeA {
 
     function getMaximumDebtForCollateral(
         address owner, address collateralizer, address creditor, int256 deltaCollateral_
-    ) public returns (int256 deltaCollateral, int256 deltaNormalDebt, uint256 creditNeeded) {
+    ) public view returns (int256 deltaCollateral, int256 deltaNormalDebt, uint256 creditNeeded) {
         Position memory position = positions[owner];
 
         deltaCollateral = deltaCollateral_;
@@ -69,7 +69,7 @@ contract CDPVault_TypeAWrapper is CDPVault_TypeA {
         return (deltaCollateral, deltaNormalDebt, creditNeeded);
     }
 
-    function liquidationPrice() internal returns (uint256) {
+    function liquidationPrice() view internal returns (uint256) {
        return wdiv(spotPrice(), uint256(vaultConfig.liquidationRatio));
     }
 
