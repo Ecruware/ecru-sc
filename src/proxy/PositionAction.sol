@@ -16,6 +16,7 @@ import {calculateNormalDebt} from "../CDPVault.sol";
 import {TransferAction, PermitParams} from "./TransferAction.sol";
 import {BaseAction} from "./BaseAction.sol";
 import {SwapAction, SwapParams, SwapType} from "./SwapAction.sol";
+import {JoinAction, JoinParams} from "./JoinAction.sol";
 
 import {IFlashlender, IERC3156FlashBorrower, ICreditFlashBorrower} from "../interfaces/IFlashlender.sol";
 
@@ -55,6 +56,10 @@ struct LeverParams {
     SwapParams primarySwap;
     // optional swap parameters to swap an arbitrary token to the collateral token or vice versa
     SwapParams auxSwap;
+    // optional join parameters to join underlier tokens to the vault for collateral tokens
+    JoinParams auxJoin;
+    // optional token that is swapped and needs to be joined to the pool
+    address auxJoinToken;
 }
 
 /// @title PositionAction
@@ -88,6 +93,8 @@ abstract contract PositionAction is IERC3156FlashBorrower, ICreditFlashBorrower,
     address public immutable self;
     /// @notice The SwapAction contract
     SwapAction public immutable swapAction;
+    /// @notice The JoinAction contract
+    JoinAction public immutable joinAction;
 
     /*//////////////////////////////////////////////////////////////
                                  ERRORS
@@ -110,13 +117,14 @@ abstract contract PositionAction is IERC3156FlashBorrower, ICreditFlashBorrower,
                              INITIALIZATION
     //////////////////////////////////////////////////////////////*/
 
-    constructor(address flashlender_, address swapAction_) {
+    constructor(address flashlender_, address swapAction_, address joinAction_) {
         flashlender = IFlashlender(flashlender_);
         stablecoin = flashlender.stablecoin();
         minter = flashlender.minter();
         cdm = flashlender.cdm();
         self = address(this);
         swapAction = SwapAction(swapAction_);
+        joinAction = JoinAction(joinAction_);
         cdm.modifyPermission(address(minter), true);
         cdm.modifyPermission(flashlender_, true);
     }

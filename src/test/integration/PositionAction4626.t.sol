@@ -77,7 +77,7 @@ contract PositionAction4626Test is IntegrationTestBase {
         userProxy = PRBProxy(payable(address(prbProxyRegistry.deployFor(user))));
 
         // deploy position actions
-        positionAction = new PositionAction4626(address(flashlender), address(swapAction));
+        positionAction = new PositionAction4626(address(flashlender), address(swapAction), address(joinAction));
 
         // set up variables to avoid stack too deep
         stablePoolIdArray.push(stablePoolId);
@@ -350,7 +350,9 @@ contract PositionAction4626Test is IntegrationTestBase {
                 deadline: block.timestamp + 100,
                 args: abi.encode(stablePoolIdArray, assets)
             }),
-            auxSwap: emptySwap
+            auxSwap: emptySwap,
+            auxJoin: emptyJoin,
+            auxJoinToken: address(0)
         });
 
         uint256 expectedAmountOut = _simulateBalancerSwap(leverParams.primarySwap);
@@ -413,7 +415,9 @@ contract PositionAction4626Test is IntegrationTestBase {
                 deadline: block.timestamp + 100,
                 args: abi.encode(stablePoolIdArray, assets)
             }),
-            auxSwap: emptySwap
+            auxSwap: emptySwap,
+            auxJoin: emptyJoin,
+            auxJoinToken: address(0)
         });
 
         uint256 expectedAmountOut = _simulateBalancerSwap(leverParams.primarySwap);
@@ -489,7 +493,9 @@ contract PositionAction4626Test is IntegrationTestBase {
                 recipient: address(positionAction),
                 deadline: block.timestamp + 100,
                 args: abi.encode(stablePoolIdArray, auxAssets)
-            })
+            }),
+            auxJoin: emptyJoin,
+            auxJoinToken: address(0)
         });
 
         // get expected return amounts
@@ -560,7 +566,9 @@ contract PositionAction4626Test is IntegrationTestBase {
                 deadline: block.timestamp + 100,
                 args: abi.encode(stablePoolIdArray, assets)
             }),
-            auxSwap: emptySwap
+            auxSwap: emptySwap,
+            auxJoin: emptyJoin,
+            auxJoinToken: address(0)
         });
 
         uint256 expectedAmountIn = _simulateBalancerSwap(leverParams.primarySwap);
@@ -643,7 +651,9 @@ contract PositionAction4626Test is IntegrationTestBase {
                 recipient: address(user),
                 deadline: block.timestamp + 100,
                 args: abi.encode(stablePoolIdArray, auxAssets)
-            })
+            }),
+            auxJoin: emptyJoin,
+            auxJoinToken: address(0)
         });
 
         // first simulate the primary swap to calculate values for aux swap
@@ -748,7 +758,9 @@ contract PositionAction4626Test is IntegrationTestBase {
                     deadline: block.timestamp + 100,
                     args: abi.encode(stablePoolIdArray, assets)
                 }),
-                auxSwap: emptySwap // no aux swap
+                auxSwap: emptySwap, // no aux swap
+                auxJoin: emptyJoin,
+                auxJoinToken: address(0)
             });
         }
 

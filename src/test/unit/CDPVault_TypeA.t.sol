@@ -76,7 +76,7 @@ contract CDPVault_TypeATest is TestBase {
         assertLt(tokenBefore - tokenAfter, amount);
     }
 
-    function _collateralizationRatio(CDPVault_TypeA vault) internal returns (uint256) {
+    function _collateralizationRatio(CDPVault_TypeA vault) view internal returns (uint256) {
         (uint256 collateral,) = vault.positions(address(this));
         if (collateral == 0) return type(uint256).max;
         return wdiv(wmul(collateral, vault.spotPrice()), _virtualDebt(vault, address(this)));

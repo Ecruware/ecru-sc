@@ -65,7 +65,7 @@ struct BatchSwapStep {
 }
 
 /**
-  * @dev See `IVault.joinPool` for more details.
+  * @dev See `joinPool` for more details.
   */
 struct JoinPoolRequest {
   address[] assets;

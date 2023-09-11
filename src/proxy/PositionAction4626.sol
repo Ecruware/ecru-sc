@@ -7,7 +7,7 @@ import {SafeERC20} from "openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol"
 
 import {ICDPVault} from "../interfaces/ICDPVault.sol";
 
-import {PositionAction, LeverParams} from "./PositionAction.sol";
+import {PositionAction, LeverParams, JoinParams} from "./PositionAction.sol";
 
 /// @title PositionAction4626
 /// @notice Generic ERC4626 implementation of PositionAction base contract
@@ -23,7 +23,7 @@ contract PositionAction4626 is PositionAction {
                              INITIALIZATION
     //////////////////////////////////////////////////////////////*/
 
-    constructor(address flashlender_, address swapActions_) PositionAction(flashlender_, swapActions_) {}
+    constructor(address flashlender_, address swapActions_, address joinAction_) PositionAction(flashlender_, swapActions_, joinAction_) {}
 
     /*//////////////////////////////////////////////////////////////
                          VIRTUAL IMPLEMENTATION
@@ -65,7 +65,6 @@ contract PositionAction4626 is PositionAction {
         return collateralWithdrawn;
     }
 
-
     /// @notice Hook to decrease lever by depositing collateral into the Yearn Vault and the Yearn Vault
     /// @param leverParams LeverParams struct
     /// @param upFrontToken the token passed up front
@@ -87,9 +86,30 @@ contract PositionAction4626 is PositionAction {
             // otherwise treat as the ERC4626 underlying
             addCollateralAmount += upFrontAmount;
         }
-        
-        // deposit into the ERC4626 vault
+
         address underlyingToken = IERC4626(leverParams.collateralToken).asset();
+        // join into the pool if needed
+        if (leverParams.auxJoin.poolId != bytes32(0)) {
+            address joinUpfrontToken = (leverParams.auxSwap.assetIn == address(0)) ? upFrontToken : leverParams.auxJoinToken;
+
+            // update the join parameters with the new amounts
+            JoinParams memory joinParams = joinAction.updateLeverJoin(
+                leverParams.auxJoin, 
+                joinUpfrontToken, 
+                leverParams.auxJoinToken, 
+                swapAmountOut, 
+                upFrontAmount
+            );
+
+            _delegateCall(
+                address(joinAction), abi.encodeWithSelector(joinAction.join.selector, joinParams)
+            );
+
+            // retrieve the total amount of collateral after the join
+            addCollateralAmount = IERC20(underlyingToken).balanceOf(address(this));
+        }
+
+        // deposit into the ERC4626 vault
         IERC20(underlyingToken).forceApprove(leverParams.collateralToken, addCollateralAmount);
         addCollateralAmount = IERC4626(leverParams.collateralToken).deposit(addCollateralAmount, address(this)) + upFrontCollateral;
 
