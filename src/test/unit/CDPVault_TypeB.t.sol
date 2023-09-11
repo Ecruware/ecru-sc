@@ -10,18 +10,22 @@ import {ICDM} from "../../interfaces/ICDM.sol";
 import {IBuffer} from "../../interfaces/IBuffer.sol";
 import {IOracle} from "../../interfaces/IOracle.sol";
 import {ICDPVaultBase} from "../../interfaces/ICDPVault.sol";
-import {CDPVaultConstants, CDPVaultConfig, CDPVault_TypeAConfig} from "../../interfaces/ICDPVault_TypeA_Factory.sol";
+import {ICDPVault_TypeBBase} from "../../interfaces/ICDPVault_TypeB.sol";
+import {CDPVaultConstants, CDPVaultConfig, CDPVault_TypeBConfig} from "../../interfaces/ICDPVault_TypeB_Factory.sol";
 import {IPermission} from "../../interfaces/IPermission.sol";
+import {ICDPVault_Deployer} from "../../interfaces/ICDPVault_Deployer.sol";
 
 import {WAD, wmul, wdiv, wpow} from "../../utils/Math.sol";
+import {VAULT_CONFIG_ROLE, TICK_MANAGER_ROLE, VAULT_UNWINDER_ROLE} from "../../CDPVault.sol";
 import {CDM} from "../../CDM.sol";
+import {PAUSER_ROLE} from "../../utils/Pause.sol";
 import {CDPVault, calculateDebt, calculateNormalDebt, VAULT_CONFIG_ROLE, TICK_MANAGER_ROLE} from "../../CDPVault.sol";
-import {CDPVault_TypeA} from "../../CDPVault_TypeA.sol";
+import {CDPVault_TypeB} from "../../CDPVault_TypeB.sol";
 import {InterestRateModel} from "../../InterestRateModel.sol";
-import {CreditWithholder} from "../../CDPVault_TypeA_Factory.sol";
+import {CDPVault_TypeB_Factory, CreditWithholder, DEPLOYER_ROLE} from "../../CDPVault_TypeB_Factory.sol";
 
-contract CDPVaultWrapper is CDPVault_TypeA {
-    constructor(address factory) CDPVault_TypeA(factory) { }
+contract CDPVaultWrapper is CDPVault_TypeB {
+    constructor(address factory) CDPVault_TypeB(factory) { }
 
     function enteredEmergencyMode(
         uint64 globalLiquidationRatio,
@@ -51,6 +55,12 @@ contract CDPVaultWrapper is CDPVault_TypeA {
         return _checkLimitOrder(limitOrderId, priceTick, normalDebt, currentRebateFactor);
     }
 
+    function calculateAssetsAndLiabilities(uint256 totalCreditWithheld) public returns (
+        uint256 assets, uint256 liabilities, uint256 credit, uint256 creditLine
+    ) {
+        return _calculateAssetsAndLiabilities(totalCreditWithheld);
+    }
+
     function calculateRateAccumulator(GlobalIRS memory globalIRS) public view returns(uint64) {
         return _calculateRateAccumulator(globalIRS, totalNormalDebt);
     }
@@ -60,6 +70,7 @@ contract CDPVaultWrapper is CDPVault_TypeA {
     }
 }
 
+// CDPVault_TypeB wrapper contract to test internal methods
 contract VaultWrapperFactory {
     ICDM private cdm;
     IOracle private oracle;
@@ -69,6 +80,7 @@ contract VaultWrapperFactory {
     uint256 private utilizationParams;
     uint256 private rebateParams;
     uint256 private tokenScale;
+    address private unwinderFactory;
     uint256 private maxUtilizationRatio;
 
     struct Params{
@@ -76,6 +88,7 @@ contract VaultWrapperFactory {
         IOracle oracle;
         IBuffer buffer;
         IERC20 token;
+        address unwinderFactory;
         uint256 protocolFee;
         uint64 targetUtilizationRatio;
         uint64 maxUtilizationRatio;
@@ -96,12 +109,13 @@ contract VaultWrapperFactory {
         tokenScale = IERC20Metadata(address(params.token)).decimals();
         protocolFee = params.protocolFee;
 
+        unwinderFactory = params.unwinderFactory;
+
         utilizationParams =
             uint256(params.targetUtilizationRatio) | (uint256(params.maxUtilizationRatio) << 64) | (uint256(params.minInterestRate - WAD) << 128) |
             (uint256(params.maxInterestRate - WAD) << 168) | (uint256(params.targetInterestRate - WAD) << 208);
 
         rebateParams = uint256(params.rebateRate) | (uint256(params.maxRebate) << 128);
-        maxUtilizationRatio = params.maxUtilizationRatio;
     }
 
     function getConstants() view external returns (
@@ -112,8 +126,7 @@ contract VaultWrapperFactory {
         uint256 tokenScale_,
         uint256 protocolFee_,
         uint256 utilizationParams_,
-        uint256 rebateParams_,
-        uint256 maxUtilizationRatio_
+        uint256 rebateParams_
     ) {
         return (
             cdm,
@@ -123,14 +136,18 @@ contract VaultWrapperFactory {
             tokenScale,
             protocolFee,
             utilizationParams,
-            rebateParams, 
-            maxUtilizationRatio
+            rebateParams
         );
     }
+
+    function creditWithholder() external returns (address) {
+        return address(new CreditWithholder(cdm, address(unwinderFactory), msg.sender));
+    } 
 
     function create() external returns(CDPVaultWrapper vault) {
         vault = new CDPVaultWrapper(address(this));
         vault.setUp();
+        vault.setUnwinderFactory(unwinderFactory);
         vault.grantRole(vault.DEFAULT_ADMIN_ROLE(), msg.sender);
     }
 }
@@ -139,6 +156,32 @@ contract PositionOwner {
     constructor(IPermission vault) {
         // Allow deployer to modify Position
         vault.modifyPermission(msg.sender, true);
+    }
+}
+
+contract CreditDelegator {
+
+    ICDM internal cdm;
+
+    constructor(ICDM cdm_) {
+        cdm = cdm_;
+    }
+
+    function delegateCredit(ICDPVault_TypeBBase vault, uint256 creditAmount) public {
+        cdm.modifyPermission(address(vault), true);
+        vault.delegateCredit(creditAmount);
+    }
+
+    function undelegateCredit(
+        ICDPVault_TypeBBase vault, uint256 shareAmount, uint256[] memory prevQueuedEpochs
+    ) external returns (
+        uint256 estimatedClaim, uint256 currentEpoch, uint256 claimableAtEpoch, uint256 fixableUntilEpoch
+    ) {
+        return vault.undelegateCredit(shareAmount, prevQueuedEpochs);
+    }
+
+    function claimUndelegatedCredit(ICDPVault_TypeBBase vault, uint256 epoch) public returns (uint256) {
+        return vault.claimUndelegatedCredit(epoch);
     }
 }
 
@@ -156,7 +199,42 @@ contract CDPVaultTest is TestBase {
                             HELPER FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    function _virtualDebt(CDPVault_TypeA vault, address position) internal view returns (uint256) {
+    function _createVaultWrapper(
+        uint256 protocolFee,
+        uint64 targetUtilizationRatio,
+        uint64 minInterestRate,
+        uint64 maxInterestRate,
+        uint64 targetInterestRate,
+        uint128 maxRebate,
+        uint128 rebateRate,
+        uint256 baseRate,
+        uint256 liquidationRatio
+
+    ) private returns (CDPVaultWrapper vault){
+        VaultWrapperFactory factory = new VaultWrapperFactory(VaultWrapperFactory.Params({
+            cdm: cdm,
+            oracle: oracle,
+            buffer: buffer,
+            token: token,
+            unwinderFactory: address(cdpVaultUnwinderFactory),
+            protocolFee: protocolFee,
+            targetUtilizationRatio: targetUtilizationRatio,
+            maxUtilizationRatio: uint64(WAD),
+            minInterestRate: minInterestRate,
+            maxInterestRate: maxInterestRate,
+            targetInterestRate: targetInterestRate,
+            maxRebate: maxRebate,
+            rebateRate: rebateRate
+        }));
+
+        vault = factory.create();
+        vault.grantRole(VAULT_CONFIG_ROLE, address(this));
+
+        vault.setParameter("baseRate", baseRate);
+        vault.setParameter("liquidationRatio", liquidationRatio);
+    }
+
+    function _virtualDebt(CDPVault_TypeB vault, address position) internal view returns (uint256) {
         (, uint256 normalDebt) = vault.positions(position);
         (uint64 rateAccumulator, uint256 accruedRebate, ) = vault.virtualIRS(position);
         return wmul(rateAccumulator, normalDebt) - accruedRebate;
@@ -167,7 +245,7 @@ contract CDPVaultTest is TestBase {
     }
 
     function _calculateUtilizationBasedInterestRate(
-        CDPVault_TypeA vault, 
+        CDPVault_TypeB vault, 
         InterestRateModel.GlobalIRS memory globalIRS,
         uint256 targetUtilizationRatio,
         uint256 minInterestRate,
@@ -196,75 +274,9 @@ contract CDPVaultTest is TestBase {
         }
     }
 
-    function _createVaultWrapper(
-        uint256 protocolFee,
-        uint64 targetUtilizationRatio,
-        uint64 minInterestRate,
-        uint64 maxInterestRate,
-        uint64 targetInterestRate,
-        uint128 maxRebate,
-        uint128 rebateRate,
-        uint256 baseRate,
-        uint256 liquidationRatio
-
-    ) private returns (CDPVaultWrapper vault){
-        VaultWrapperFactory factory = new VaultWrapperFactory(VaultWrapperFactory.Params({
-            cdm: cdm,
-            oracle: oracle,
-            buffer: buffer,
-            token: token,
-            protocolFee: protocolFee,
-            targetUtilizationRatio: targetUtilizationRatio,
-            maxUtilizationRatio: uint64(WAD),
-            minInterestRate: minInterestRate,
-            maxInterestRate: maxInterestRate,
-            targetInterestRate: targetInterestRate,
-            maxRebate: maxRebate,
-            rebateRate: rebateRate
-        }));
-
-        vault = factory.create();
-        vault.grantRole(VAULT_CONFIG_ROLE, address(this));
-
-        vault.setParameter("baseRate", baseRate);
-        vault.setParameter("liquidationRatio", liquidationRatio);
-    }
-
-    function _setDebtCeiling(CDPVault vault, uint256 debtCeiling) internal {
-        cdm.setParameter(address(vault), "debtCeiling", debtCeiling);
-    }
-
     /*//////////////////////////////////////////////////////////////
                             TEST FUNCTIONS
     //////////////////////////////////////////////////////////////*/
-
-    function test_setParameter() public {
-        CDPVault_TypeA vault = createCDPVault_TypeA(token, 0, 0, 1 ether, 1 ether, 0, 1 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
-        vault.setParameter("debtFloor", 100 ether);
-        vault.setParameter("liquidationRatio", 1.25 ether);
-        vault.setParameter("globalLiquidationRatio", 1.1 ether);
-        vault.setParameter("limitOrderFloor", 50 ether);
-        vault.setParameter("baseRate", BASE_RATE_1_005);
-
-        (uint128 debtFloor, uint64 liquidationRatio, uint64 globalLiquidationRatio) = vault.vaultConfig();
-        assertEq(debtFloor, 100 ether);
-        assertEq(liquidationRatio, 1.25 ether);
-        assertEq(globalLiquidationRatio, 1.1 ether);
-        assertEq(vault.limitOrderFloor(), 50 ether);
-
-        CDPVault_TypeA.GlobalIRS memory globalIRS = vault.getGlobalIRS();
-        assertEq(globalIRS.baseRate, int256(BASE_RATE_1_005));
-
-        vault.setParameter("baseRate", type(uint256).max);
-        globalIRS = vault.getGlobalIRS();
-        assertEq(globalIRS.baseRate, int64(-1));
-    }
-    
-    function test_setParameter_revertsOnUnrecognizedParam() public {
-        CDPVault_TypeA vault = createCDPVault_TypeA(token, 0, 0, 1 ether, 1 ether, 0, 1 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
-        vm.expectRevert(CDPVault_TypeA.CDPVault__setParameter_unrecognizedParameter.selector);
-        vault.setParameter("asd", 100 ether);
-    }
 
     function test_enteredEmergencyMode() public {
         CDPVaultWrapper vault = _createVaultWrapper({
@@ -314,7 +326,10 @@ contract CDPVaultTest is TestBase {
         vault.grantRole(TICK_MANAGER_ROLE, address(this));
         vault.setParameter("limitOrderFloor", 10 ether);
 
-        _setDebtCeiling(vault, 100 ether);
+        // delegate credit
+        createCredit(address(this), 100 ether);
+        cdm.modifyPermission(address(vault), true);
+        vault.delegateCredit(100 ether);
 
         // create position
         token.mint(address(this), 100 ether);
@@ -357,8 +372,11 @@ contract CDPVaultTest is TestBase {
         vault.grantRole(TICK_MANAGER_ROLE, address(this));
         vault.setParameter("limitOrderFloor", 30 ether);
 
-        _setDebtCeiling(vault, 100 ether);
-        
+        // delegate credit
+        createCredit(address(this), 100 ether);
+        cdm.modifyPermission(address(vault), true);
+        vault.delegateCredit(100 ether);
+
         // create position
         token.mint(address(this), 100 ether);
         token.approve(address(vault), 100 ether);
@@ -378,7 +396,6 @@ contract CDPVaultTest is TestBase {
             vault.limitOrders(vault.deriveLimitOrderId(address(this))),
             0
         );
-
     }
 
     function test_deriveLimitOrderId(address maker) public {
@@ -398,6 +415,69 @@ contract CDPVaultTest is TestBase {
             vault.deriveLimitOrderId(maker),
             uint256(uint160(maker))
         );
+    }
+
+    function test_calculateAssetsAndLiabilities() public {
+        CDPVaultWrapper vault = _createVaultWrapper({
+            protocolFee: 0,
+            targetUtilizationRatio: 0,
+            minInterestRate: uint64(WAD),
+            maxInterestRate: uint64(1000000021919499726),
+            targetInterestRate: uint64(1000000015353288160),
+            maxRebate: uint128(WAD),
+            rebateRate: 0,
+            baseRate: WAD,
+            liquidationRatio: 1.25 ether
+        });
+        
+        createCredit(address(this), 100 ether);
+        cdm.modifyPermission(address(vault), true);
+        vault.delegateCredit(100 ether);
+
+        token.mint(address(this), 100 ether);
+        token.approve(address(vault), 100 ether);
+        vault.deposit(address(this), 100 ether);
+        vault.modifyCollateralAndDebt(address(this), address(this), address(this), 100 ether, 75 ether);
+
+        (
+            uint256 assets, 
+            uint256 liabilities, 
+            uint256 credit, 
+            uint256 creditLine
+        ) = vault.calculateAssetsAndLiabilities(0);
+
+        assertEq(assets, 100 ether);
+        assertEq(liabilities, 0);
+        assertEq(credit, 25 ether);
+        assertEq(creditLine, 25 ether);
+    }
+
+    function test_calculateAssetsAndLiabilities_revertsOnInsufficientAssets() public {
+        CDPVaultWrapper vault = _createVaultWrapper({
+            protocolFee: 2.1 ether,
+            targetUtilizationRatio: 0,
+            minInterestRate: uint64(WAD),
+            maxInterestRate: uint64(1000000021919499726),
+            targetInterestRate: uint64(1000000015353288160),
+            maxRebate: uint128(WAD),
+            rebateRate: 0,
+            baseRate: 1000000021919499726,
+            liquidationRatio : WAD
+        });
+
+        createCredit(address(this), 100 ether);
+        cdm.modifyPermission(address(vault), true);
+        vault.delegateCredit(100 ether);
+
+        token.mint(address(this), 100 ether);
+        token.approve(address(vault), 100 ether);
+        vault.deposit(address(this), 100 ether);
+        vault.modifyCollateralAndDebt(address(this), address(this), address(this), 100 ether, 100 ether);
+
+        vm.warp(block.timestamp + 365 days);
+
+        vm.expectRevert(CDPVault_TypeB.CDPVault_TypeB__calculateAssetsAndLiabilities_insufficientAssets.selector);
+        vault.calculateAssetsAndLiabilities(0);
     }
 
     function test_calculateRateAccumulator_staticRate(uint64 baseRate) public {
@@ -455,7 +535,7 @@ contract CDPVaultTest is TestBase {
 
         // get the utilization based interest rate
         uint64 interestRate = _calculateUtilizationBasedInterestRate({
-            vault: CDPVault_TypeA(address(vault)), 
+            vault: CDPVault_TypeB(address(vault)), 
             globalIRS: globalIRS, 
             targetUtilizationRatio: uint64(WAD/2),
             minInterestRate: 1000000007056502735, 
@@ -491,10 +571,12 @@ contract CDPVaultTest is TestBase {
         
         // setup vault permissions in CDM
         cdm.modifyPermission(address(vault), true);
-        _setDebtCeiling(vault, 200 ether);
+        cdm.setParameter(address(vault), "debtCeiling", 200 ether);
 
-        createCredit(address(vault), 100 ether);
-        
+        // delegate credit to vault
+        createCredit(address(this), 100 ether);
+        vault.delegateCredit(100 ether);
+
         // create position
         token.mint(address(this), 200 ether);
         token.approve(address(vault), 200 ether);
@@ -506,7 +588,7 @@ contract CDPVaultTest is TestBase {
 
         // get the utilization based interest rate
         uint64 interestRate = _calculateUtilizationBasedInterestRate({
-            vault: CDPVault_TypeA(address(vault)), 
+            vault: CDPVault_TypeB(address(vault)), 
             globalIRS: globalIRS, 
             targetUtilizationRatio: 0.25 ether,
             minInterestRate: 1000000007056502735, 
@@ -523,10 +605,283 @@ contract CDPVaultTest is TestBase {
         assertEq(rateAccumulator, expectedValue);
     }
 
-    function test_claimFees() public {
-        CDPVault_TypeA vault = createCDPVault_TypeA(token, 0, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_025, 1.05 ether, 0);
 
-        _setDebtCeiling(vault, 100 ether);
+    function test_claimUndelegatedCredit_simple_delegateFirst() public {
+        CDPVault_TypeB vault = createCDPVault_TypeB(token, 0, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
+
+        // obtain additional credit to repay interest
+        createCredit(address(this), 100 ether);
+
+        vault.delegateCredit(100 ether);
+        assertEq(credit(address(vault)), 100 ether);
+        assertEq(vault.shares(address(this)), 100 ether);
+
+        (
+            , uint256 epoch, uint256 claimableAtEpoch, uint256 fixableUntilEpoch
+        ) = vault.undelegateCredit(vault.shares(address(this)), new uint256[](0));
+        assertEq(epoch < claimableAtEpoch && claimableAtEpoch < fixableUntilEpoch, true);
+        assertEq(vault.sharesQueuedByEpoch(epoch, address(this)), 100 ether);
+        (, uint256 totalCreditWithheld, uint256 totalSharesQueued,,) = vault.epochs(epoch);
+        assertEq(totalSharesQueued, 100 ether);
+        assertEq(totalCreditWithheld, 100 ether);
+
+        vm.expectRevert();
+        vault.claimUndelegatedCredit(epoch);
+
+        vm.warp(block.timestamp + vault.EPOCH_DURATION() * vault.EPOCH_FIX_DELAY());
+        uint256 creditAmount = vault.claimUndelegatedCredit(epoch);
+        assertEq(creditAmount, 100 ether);
+        assertEq(credit(address(this)), 100 ether);
+        assertEq(vault.shares(address(this)), 0);
+    }
+
+    function test_claimUndelegatedCredit_multiple() public {
+        CDPVault_TypeB vault = createCDPVault_TypeB(token, 0, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
+
+        CreditDelegator delegatorA = new CreditDelegator(cdm);
+        createCredit(address(delegatorA), 100 ether);
+        delegatorA.delegateCredit(vault, 100 ether);
+        assertEq(credit(address(vault)), 100 ether);
+        assertEq(vault.shares(address(delegatorA)), 100 ether);
+
+        CreditDelegator delegatorB = new CreditDelegator(cdm);
+        createCredit(address(delegatorB), 50 ether);
+        delegatorB.delegateCredit(vault, 50 ether);
+        assertEq(credit(address(vault)), 150 ether);
+        assertEq(vault.shares(address(delegatorB)), 50 ether);
+
+        (
+            , uint256 epoch, uint256 claimableAtEpoch, uint256 fixableUntilEpoch
+        ) = delegatorA.undelegateCredit(vault, vault.shares(address(delegatorA)), new uint256[](0));
+        assertEq(epoch < claimableAtEpoch && claimableAtEpoch < fixableUntilEpoch, true);
+        assertEq(vault.sharesQueuedByEpoch(epoch, address(delegatorA)), 100 ether);
+        (, uint256 totalCreditWithheld, uint256 totalSharesQueued,,) = vault.epochs(epoch);
+        assertEq(totalSharesQueued, 100 ether);
+        assertEq(totalCreditWithheld, 100 ether);
+
+        (
+            , epoch, claimableAtEpoch, fixableUntilEpoch
+        ) = delegatorB.undelegateCredit(vault, vault.shares(address(delegatorB)), new uint256[](0));
+        assertEq(epoch < claimableAtEpoch && claimableAtEpoch < fixableUntilEpoch, true);
+        assertEq(vault.sharesQueuedByEpoch(epoch, address(delegatorB)), 50 ether);
+        (, totalCreditWithheld, totalSharesQueued,,) = vault.epochs(epoch);
+        assertEq(totalSharesQueued, 150 ether);
+        assertEq(totalCreditWithheld, 150 ether);
+
+        vm.expectRevert();
+        vault.claimUndelegatedCredit(epoch);
+
+        vm.warp(block.timestamp + vault.EPOCH_DURATION() * vault.EPOCH_FIX_DELAY());
+        uint256 creditAmountA = delegatorA.claimUndelegatedCredit(vault, epoch);
+        assertEq(creditAmountA, 100 ether);
+        assertEq(credit(address(delegatorA)), 100 ether);
+        assertEq(vault.shares(address(delegatorA)), 0);
+        
+        vm.warp(block.timestamp + vault.EPOCH_DURATION() * 4);
+        uint256 creditAmountB = delegatorB.claimUndelegatedCredit(vault, epoch);
+        assertEq(creditAmountB, 50 ether);
+        assertEq(credit(address(delegatorB)), 50 ether);
+        assertEq(vault.shares(address(delegatorA)), 0);
+    }
+
+    function test_claimUndelegatedCredit_multiple_staleEpoch() public {
+        CDPVault_TypeB vault = createCDPVault_TypeB(token, 0, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
+        CreditDelegator delegatorA = new CreditDelegator(cdm);
+        uint256 startingCredit = 100 ether;
+
+        createCredit(address(delegatorA), startingCredit);
+        delegatorA.delegateCredit(vault, startingCredit);
+        assertEq(credit(address(vault)), startingCredit);
+        assertEq(vault.shares(address(delegatorA)), startingCredit);
+
+        // undelegate half the shares but let the epoch become stale
+        (
+            , uint256 epoch, uint256 claimableAtEpoch, uint256 fixableUntilEpoch
+        ) = delegatorA.undelegateCredit(vault, startingCredit / 2, new uint256[](0));
+
+        // pass time so the epoch becomes stale
+        vm.warp(block.timestamp + vault.EPOCH_DURATION() * 4);
+        uint256[] memory epochs = new uint256[](4);
+        for( uint offset = 0; offset < 4; ++offset){
+            epochs[offset] = epoch + offset;
+        }
+
+        // undelegate again but for the full amount (starting credit)
+        // the first undelegate should be unqueued
+        (
+            , epoch, claimableAtEpoch, fixableUntilEpoch
+        ) = delegatorA.undelegateCredit(vault, startingCredit, epochs);
+
+        assertEq(epoch < claimableAtEpoch && claimableAtEpoch < fixableUntilEpoch, true);
+        assertEq(vault.sharesQueuedByEpoch(epoch, address(delegatorA)), startingCredit);
+        (, uint256 totalCreditWithheld, uint256 totalSharesQueued,,) = vault.epochs(epoch);
+        assertEq(totalSharesQueued, startingCredit);
+        assertEq(totalCreditWithheld,startingCredit);
+    }
+
+    function test_claimUndelegatedCredit_simple_borrowFirst() public {
+        CDPVault_TypeB vault = createCDPVault_TypeB(token, 100 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_025, 0, 0);
+
+        token.mint(address(this), 100 ether);
+        token.approve(address(vault), 100 ether);
+        vault.deposit(address(this), 100 ether);
+        vault.modifyCollateralAndDebt(address(this), address(this), address(this), 100 ether, 50 ether);
+
+        // obtain additional credit to delegate
+        createCredit(address(this), 50 ether);
+        vault.delegateCredit(100 ether);
+        assertEq(credit(address(vault)), 50 ether); // 50 Credit are filling the 50 Debt in the CDM
+        assertEq(vault.shares(address(this)), 100 ether);
+
+        (
+            , uint256 epoch, uint256 claimableAtEpoch, uint256 fixableUntilEpoch
+        ) = vault.undelegateCredit(vault.shares(address(this)), new uint256[](0));
+        assertEq(epoch < claimableAtEpoch && claimableAtEpoch < fixableUntilEpoch, true);
+        assertEq(vault.sharesQueuedByEpoch(epoch, address(this)), 100 ether);
+        (, uint256 totalCreditWithheld, uint256 totalSharesQueued,, uint256 estimatedCreditClaimPerShare) = vault.epochs(epoch);
+        assertEq(totalSharesQueued, 100 ether);
+        assertGe(totalCreditWithheld, 100 ether);
+        assertEq(estimatedCreditClaimPerShare, 1 ether); // no interest has accrued yet
+
+        vm.expectRevert();
+        vault.claimUndelegatedCredit(epoch);
+
+        vm.warp(block.timestamp + vault.EPOCH_DURATION() * vault.EPOCH_FIX_DELAY());
+        uint256 creditAmount = vault.claimUndelegatedCredit(epoch);
+        assertEq(creditAmount, 100 ether); // does not include the accrued interest
+        assertEq(credit(address(this)), 100 ether);
+        assertEq(vault.shares(address(this)), 0);
+    }
+
+    function test_claimUndelegatedCredit_fixTimeout() public {
+        CDPVault_TypeB vault = createCDPVault_TypeB(token, 0, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
+
+        // obtain additional credit to repay interest
+        createCredit(address(this), 100 ether);
+
+        vault.delegateCredit(100 ether);
+        assertEq(credit(address(vault)), 100 ether);
+        assertEq(vault.shares(address(this)), 100 ether);
+
+        (
+            , uint256 epoch, uint256 claimableAtEpoch, uint256 fixableUntilEpoch
+        ) = vault.undelegateCredit(vault.shares(address(this)), new uint256[](0));
+        assertEq(epoch < claimableAtEpoch && claimableAtEpoch < fixableUntilEpoch, true);
+        assertEq(vault.sharesQueuedByEpoch(epoch, address(this)), 100 ether);
+        (, uint256 totalCreditWithheld, uint256 totalSharesQueued,,) = vault.epochs(epoch);
+        assertEq(totalSharesQueued, 100 ether);
+        assertEq(totalCreditWithheld, 100 ether);
+
+        uint256 snapshot = vm.snapshot();
+
+        vm.warp(block.timestamp + vault.EPOCH_DURATION() * (vault.EPOCH_FIX_TIMEOUT()));
+        assertEq(vault.claimUndelegatedCredit(epoch), 100 ether);
+
+        vm.revertTo(snapshot);
+
+        vm.warp(block.timestamp + vault.EPOCH_DURATION() * (vault.EPOCH_FIX_TIMEOUT() + 1));
+        vm.expectRevert(CDPVault_TypeB.CDPVault_TypeB__claimUndelegatedCredit_epochNotFixed.selector);
+        vault.claimUndelegatedCredit(epoch);
+    }
+
+    function test_claimUndelegatedCredit_noLiquidity() public {
+        CDPVault_TypeB vault = createCDPVault_TypeB(token, 0, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
+
+        // obtain additional credit to repay interest
+        createCredit(address(this), 100 ether);
+
+        vault.delegateCredit(100 ether);
+        assertEq(credit(address(vault)), 100 ether);
+        assertEq(vault.shares(address(this)), 100 ether);
+
+        token.mint(address(this), 100 ether);
+        token.approve(address(vault), 100 ether);
+        vault.deposit(address(this), 100 ether);
+        vault.modifyCollateralAndDebt(address(this), address(this), address(this), 100 ether, 50 ether);
+
+        (
+            , uint256 epoch, uint256 claimableAtEpoch, uint256 fixableUntilEpoch
+        ) = vault.undelegateCredit(vault.shares(address(this)), new uint256[](0));
+        assertEq(epoch < claimableAtEpoch && claimableAtEpoch < fixableUntilEpoch, true);
+        assertEq(vault.sharesQueuedByEpoch(epoch, address(this)), 100 ether);
+        (, uint256 totalCreditWithheld, uint256 totalSharesQueued,,) = vault.epochs(epoch);
+        assertEq(totalSharesQueued, 100 ether);
+        assertEq(totalCreditWithheld, 50 ether);
+
+        vm.warp(block.timestamp + vault.EPOCH_DURATION() * vault.EPOCH_FIX_DELAY());
+        uint256 creditAmount = vault.claimUndelegatedCredit(epoch);
+        assertEq(creditAmount, 50 ether);
+        assertEq(credit(address(this)), 50 ether + 50 ether); // 50 ether undelegated + 50 ether borrowed
+        assertEq(vault.shares(address(this)), 50 ether);
+    }
+
+    function test_claimUndelegatedCredit_loss() public {
+        CDPVault_TypeB vault = createCDPVault_TypeB(token, 0, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
+
+        // obtain additional credit to repay interest
+        createCredit(address(this), 100 ether);
+
+        vault.delegateCredit(100 ether);
+        assertEq(credit(address(vault)), 100 ether);
+        assertEq(vault.shares(address(this)), 100 ether);
+
+        vm.prank(address(vault));
+        cdm.modifyBalance(address(vault), address(0), 50 ether);
+
+        (
+            , uint256 epoch, uint256 claimableAtEpoch, uint256 fixableUntilEpoch
+        ) = vault.undelegateCredit(vault.shares(address(this)), new uint256[](0));
+        assertEq(epoch < claimableAtEpoch && claimableAtEpoch < fixableUntilEpoch, true);
+        assertEq(vault.sharesQueuedByEpoch(epoch, address(this)), 100 ether);
+        (, uint256 totalCreditWithheld, uint256 totalSharesQueued,,) = vault.epochs(epoch);
+        assertEq(totalSharesQueued, 100 ether);
+        assertEq(totalCreditWithheld, 50 ether);
+
+        vm.warp(block.timestamp + vault.EPOCH_DURATION() * vault.EPOCH_FIX_DELAY());
+        uint256 creditAmount = vault.claimUndelegatedCredit(epoch);
+        assertEq(creditAmount, 50 ether);
+        assertEq(credit(address(this)), 50 ether);
+        assertEq(vault.shares(address(this)), 0);
+    }
+
+    function test_claimUndelegatedCredit_advancement() public {
+        CDPVault_TypeB vault = createCDPVault_TypeB(token, 50 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
+
+        // obtain additional credit to repay interest
+        createCredit(address(this), 100 ether);
+
+        vault.delegateCredit(100 ether);
+        assertEq(credit(address(vault)), 100 ether);
+        assertEq(vault.shares(address(this)), 100 ether);
+
+        token.mint(address(this), 100 ether);
+        token.approve(address(vault), 100 ether);
+        vault.deposit(address(this), 100 ether);
+        vault.modifyCollateralAndDebt(address(this), address(this), address(this), 100 ether, 50 ether);
+
+        (
+            , uint256 epoch, uint256 claimableAtEpoch, uint256 fixableUntilEpoch
+        ) = vault.undelegateCredit(vault.shares(address(this)), new uint256[](0));
+        assertEq(epoch < claimableAtEpoch && claimableAtEpoch < fixableUntilEpoch, true);
+        assertEq(vault.sharesQueuedByEpoch(epoch, address(this)), 100 ether);
+        (, uint256 totalCreditWithheld, uint256 totalSharesQueued,,) = vault.epochs(epoch);
+        assertEq(totalSharesQueued, 100 ether);
+        assertEq(totalCreditWithheld, 100 ether);
+
+        vm.warp(block.timestamp + vault.EPOCH_DURATION() * vault.EPOCH_FIX_DELAY());
+        uint256 creditAmount = vault.claimUndelegatedCredit(epoch);
+        assertEq(creditAmount, 100 ether);
+        assertEq(credit(address(this)), 100 ether + 50 ether); // 100 ether undelegated + 50 ether borrowed
+        assertEq(vault.shares(address(this)), 0);
+    }
+
+    function test_claimFees() public {
+        CDPVault_TypeB vault = createCDPVault_TypeB(token, 0, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_025, 1.05 ether, 0);
+
+        createCredit(address(this), 100 ether);
+        vault.delegateCredit(100 ether);
+        assertEq(credit(address(vault)), 100 ether);
+        assertEq(vault.shares(address(this)), 100 ether);
 
         token.mint(address(this), 100 ether);
         token.approve(address(vault), 100 ether);
@@ -546,7 +901,7 @@ contract CDPVaultTest is TestBase {
     }
 
     function test_modifyCollateralAndDebt_depositCollateral() public {
-        CDPVault_TypeA vault = createCDPVault_TypeA(token, 150 ether, 10 ether, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
+        CDPVault_TypeB vault = createCDPVault_TypeB(token, 150 ether, 10 ether, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
 
         token.mint(address(this), 100 ether);
         token.approve(address(vault), 100 ether);
@@ -558,7 +913,7 @@ contract CDPVaultTest is TestBase {
     }
 
     function test_modifyCollateralAndDebt_createDebt() public {
-        CDPVault_TypeA vault = createCDPVault_TypeA(token, 150 ether, 10 ether, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
+        CDPVault_TypeB vault = createCDPVault_TypeB(token, 150 ether, 10 ether, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
 
         token.mint(address(this), 100 ether);
         token.approve(address(vault), 100 ether);
@@ -571,7 +926,7 @@ contract CDPVaultTest is TestBase {
     }
 
     function test_modifyCollateralAndDebt_depositCollateralAndDrawDebt() public {
-        CDPVault_TypeA vault = createCDPVault_TypeA(token, 150 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
+        CDPVault_TypeB vault = createCDPVault_TypeB(token, 150 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
 
         token.mint(address(this), 100 ether);
         token.approve(address(vault), 100 ether);
@@ -583,14 +938,14 @@ contract CDPVaultTest is TestBase {
     }
 
     function test_modifyCollateralAndDebt_emptyCall() public {
-        CDPVault_TypeA vault = createCDPVault_TypeA(token, 150 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
+        CDPVault_TypeB vault = createCDPVault_TypeB(token, 150 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
         address position = address(new PositionOwner(vault));
         vault.modifyCollateralAndDebt(position, address(this), address(this), 0, 0);
 
     }
 
     function test_modifyCollateralAndDebt_repayPositionAndWidthdraw() public {
-        CDPVault_TypeA vault = createCDPVault_TypeA(token, 150 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
+        CDPVault_TypeB vault = createCDPVault_TypeB(token, 150 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
 
         token.mint(address(this), 100 ether);
         token.approve(address(vault), 100 ether);
@@ -603,7 +958,7 @@ contract CDPVaultTest is TestBase {
     }
 
     function test_modifyCollateralAndDebt_revertsOnUnsafePosition() public {
-        CDPVault_TypeA vault = createCDPVault_TypeA(token, 150 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
+        CDPVault_TypeB vault = createCDPVault_TypeB(token, 150 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
 
         token.mint(address(this), 100 ether);
         token.approve(address(vault), 100 ether);
@@ -616,7 +971,7 @@ contract CDPVaultTest is TestBase {
     }
 
     function test_modifyCollateralAndDebt_revertsOnDebtFloor() public {
-        CDPVault_TypeA vault = createCDPVault_TypeA(token, 150 ether, 10 ether, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
+        CDPVault_TypeB vault = createCDPVault_TypeB(token, 150 ether, 10 ether, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
 
         token.mint(address(this), 100 ether);
         token.approve(address(vault), 100 ether);
@@ -633,16 +988,16 @@ contract CDPVaultTest is TestBase {
         CDPVaultConstants memory vaultParams = _getDefaultVaultParams();
         vaultParams.maxUtilizationRatio = 0.80 ether;
 
-        CDPVault_TypeAConfig memory vaultParams_TypeA = _getDefaultVaultParams_TypeA();
-        vaultParams_TypeA.targetHealthFactor = 1.15 ether;
+        CDPVault_TypeBConfig memory vaultParams_TypeB = _getDefaultVaultParams_TypeB();
+        vaultParams_TypeB.targetHealthFactor = 1.15 ether;
 
         CDPVaultConfig memory vaultConfigs = _getDefaultVaultConfigs();
         vaultConfigs.liquidationRatio = 1.15 ether;
         vaultConfigs.globalLiquidationRatio = 1.15 ether;
         
-        CDPVault_TypeA vault = createCDPVault_TypeA(
+        CDPVault_TypeB vault = createCDPVault_TypeB(
             vaultParams,
-            vaultParams_TypeA,
+            vaultParams_TypeB,
             vaultConfigs,
             debtCeiling              
         );
@@ -662,16 +1017,16 @@ contract CDPVaultTest is TestBase {
         CDPVaultConstants memory vaultParams = _getDefaultVaultParams();
         vaultParams.maxUtilizationRatio = 0.80 ether;
 
-        CDPVault_TypeAConfig memory vaultParams_TypeA = _getDefaultVaultParams_TypeA();
-        vaultParams_TypeA.targetHealthFactor = 1.15 ether;
+        CDPVault_TypeBConfig memory vaultParams_TypeB = _getDefaultVaultParams_TypeB();
+        vaultParams_TypeB.targetHealthFactor = 1.15 ether;
 
         CDPVaultConfig memory vaultConfigs = _getDefaultVaultConfigs();
         vaultConfigs.liquidationRatio = 1.15 ether;
         vaultConfigs.globalLiquidationRatio = 1.15 ether;
         
-        CDPVault_TypeA vault = createCDPVault_TypeA(
+        CDPVault_TypeB vault = createCDPVault_TypeB(
             vaultParams,
-            vaultParams_TypeA,
+            vaultParams_TypeB,
             vaultConfigs,
             debtCeiling              
         );
@@ -699,7 +1054,7 @@ contract CDPVaultTest is TestBase {
     }
 
     function test_addLimitPriceTick_addMultipleTicks() public {
-        CDPVault_TypeA vault = createCDPVault_TypeA(token, 150 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_025, 0, 0);
+        CDPVault_TypeB vault = createCDPVault_TypeB(token, 150 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_025, 0, 0);
         uint256 limitOrderPriceIncrement = 0.25 ether;
         uint256 price = 100 ether;
         uint256 nextPrice = 0;
@@ -712,7 +1067,7 @@ contract CDPVaultTest is TestBase {
     }
 
     function test_addLimitPriceTick_revertsOnOutOfRange() public {
-        CDPVault_TypeA vault = createCDPVault_TypeA(token, 150 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_025, 0, 0);
+        CDPVault_TypeB vault = createCDPVault_TypeB(token, 150 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_025, 0, 0);
         vm.expectRevert(CDPVault.CDPVault__addLimitPriceTick_limitPriceTickOutOfRange.selector);
         vault.addLimitPriceTick(0, 0);
 
@@ -721,7 +1076,7 @@ contract CDPVaultTest is TestBase {
     }
 
     function test_addLimitPriceTick_revertsOnInvalidOrder() public {
-        CDPVault_TypeA vault = createCDPVault_TypeA(token, 150 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_025, 0, 0);
+        CDPVault_TypeB vault = createCDPVault_TypeB(token, 150 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_025, 0, 0);
         vault.addLimitPriceTick(2 ether, 0);
 
         vm.expectRevert(CDPVault.CDPVault__addLimitPriceTick_invalidPriceTickOrder.selector);
@@ -729,7 +1084,7 @@ contract CDPVaultTest is TestBase {
     }
 
     function test_removeLimitPriceTick() public {
-        CDPVault_TypeA vault = createCDPVault_TypeA(token, 150 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_025, 0, 0);
+        CDPVault_TypeB vault = createCDPVault_TypeB(token, 150 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_025, 0, 0);
         uint256 limitOrderPriceIncrement = 0.25 ether;
         uint256 price = 100 ether;
         uint256 nextPrice = 0;
@@ -747,7 +1102,7 @@ contract CDPVaultTest is TestBase {
     }
 
     function test_getPriceTick() public {
-        CDPVault_TypeA vault = createCDPVault_TypeA(token, 150 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_025, 0, 0);
+        CDPVault_TypeB vault = createCDPVault_TypeB(token, 150 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_025, 0, 0);
         vault.addLimitPriceTick(WAD, 0);
 
         (uint priceTick, bool isActive) = vault.getPriceTick(0);
@@ -757,7 +1112,7 @@ contract CDPVaultTest is TestBase {
     }
 
     function test_getPriceTick_notFound() public {
-        CDPVault_TypeA vault = createCDPVault_TypeA(token, 150 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_025, 0, 0);
+        CDPVault_TypeB vault = createCDPVault_TypeB(token, 150 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_025, 0, 0);
         vault.addLimitPriceTick(WAD, 0);
 
         (uint priceTick, bool isActive) = vault.getPriceTick(1);
@@ -767,7 +1122,7 @@ contract CDPVaultTest is TestBase {
     }
 
     function test_createLimitOrder() public {
-        CDPVault_TypeA vault = createCDPVault_TypeA(token, 100 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
+        CDPVault_TypeB vault = createCDPVault_TypeB(token, 100 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
 
         // create position
         token.mint(address(this), 100 ether);
@@ -781,7 +1136,7 @@ contract CDPVaultTest is TestBase {
     }
 
     function test_createLimitOrder_priceTickNotActive() public {
-        CDPVault_TypeA vault = createCDPVault_TypeA(token, 100 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
+        CDPVault_TypeB vault = createCDPVault_TypeB(token, 100 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
 
         // create position
         token.mint(address(this), 100 ether);
@@ -795,7 +1150,7 @@ contract CDPVaultTest is TestBase {
     }
 
     function test_createLimitOrder_revertsOnLimitOrderFloor() public {
-        CDPVault_TypeA vault = createCDPVault_TypeA(token, 100 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
+        CDPVault_TypeB vault = createCDPVault_TypeB(token, 100 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
 
         vault.setParameter("limitOrderFloor", 20 ether);
 
@@ -812,7 +1167,7 @@ contract CDPVaultTest is TestBase {
     }
 
     function test_createLimitOrder_revertsOnExistingLimitOrder() public {
-        CDPVault_TypeA vault = createCDPVault_TypeA(token, 100 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
+        CDPVault_TypeB vault = createCDPVault_TypeB(token, 100 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
 
         // create position
         token.mint(address(this), 100 ether);
@@ -830,7 +1185,7 @@ contract CDPVaultTest is TestBase {
     }
 
     function test_getLimitOrder_returnsCorrectID() public {
-        CDPVault_TypeA vault = createCDPVault_TypeA(token, 100 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
+        CDPVault_TypeB vault = createCDPVault_TypeB(token, 100 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
 
         // create position
         token.mint(address(this), 100 ether);
@@ -849,7 +1204,7 @@ contract CDPVaultTest is TestBase {
     }
 
     function test_getLimitOrder_returnsDefaultOnNotFound () public {
-        CDPVault_TypeA vault = createCDPVault_TypeA(token, 100 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
+        CDPVault_TypeB vault = createCDPVault_TypeB(token, 100 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
 
         assertEq(
             0,
@@ -858,7 +1213,7 @@ contract CDPVaultTest is TestBase {
     }
 
     function test_getLimitOrder_multiple() public {
-        CDPVault_TypeA vault = createCDPVault_TypeA(token, 200 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, 1.1 ether, BASE_RATE_1_0, 0, 0);
+        CDPVault_TypeB vault = createCDPVault_TypeB(token, 200 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, 1.1 ether, BASE_RATE_1_0, 0, 0);
 
         // create position
         token.mint(address(this), 400 ether);
@@ -911,7 +1266,7 @@ contract CDPVaultTest is TestBase {
     }
 
     function test_reserve_interest() public {
-        CDPVault_TypeA vault = createCDPVault_TypeA(token, 150 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_005, 0, 0);
+        CDPVault_TypeB vault = createCDPVault_TypeB(token, 150 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_005, 0, 0);
 
         // create position
         token.mint(address(this), 100 ether);
@@ -929,7 +1284,7 @@ contract CDPVaultTest is TestBase {
     }
 
     function test_reserve_interest_repayAtDebtCeiling() public {
-        CDPVault_TypeA vault = createCDPVault_TypeA(token, 150 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_005, 0, 0);
+        CDPVault_TypeB vault = createCDPVault_TypeB(token, 150 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_005, 0, 0);
 
         // create position
         token.mint(address(this), 200 ether);
@@ -950,8 +1305,38 @@ contract CDPVaultTest is TestBase {
         vault.modifyCollateralAndDebt(address(this), address(this), address(this), -200 ether, -150 ether);
     }
 
+    function test_non_reserve_interest() public {
+        CDPVault_TypeB vault = createCDPVault_TypeB(token, 0, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_005, 0, 0);
+
+        // delegate 100 credit to CDPVault
+        createCredit(address(this), 100 ether);
+        vault.delegateCredit(100 ether);
+
+        // create position
+        token.mint(address(this), 100 ether);
+        token.approve(address(vault), 100 ether);
+        vault.deposit(address(this), 100 ether);
+        assertEq(vault.cash(address(this)), 100 ether);
+        vault.modifyCollateralAndDebt(address(this), address(this), address(this), 100 ether, 80 ether);
+        assertEq(debt(address(vault)), 0);
+        assertEq(credit(address(this)), 80 ether);
+
+        // accrue interest        
+        assertEq(_virtualDebt(vault, address(this)), 80 ether);
+        vm.warp(block.timestamp + 365 days);
+        assertGt(_virtualDebt(vault, address(this)), 80 ether);
+
+        // obtain additional credit to repay interest
+        createCredit(address(this), 0.5 ether);
+
+        // repay debt
+        vault.modifyCollateralAndDebt(address(this), address(this), address(this), -100 ether, -80 ether);
+        assertEq(_virtualDebt(vault, address(this)), 0);
+        assertGt(credit(address(vault)), 100 ether);
+    }
+
     function test_exchange_simple_reserve() public {
-        CDPVault_TypeA vault = createCDPVault_TypeA(token, 100 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
+        CDPVault_TypeB vault = createCDPVault_TypeB(token, 100 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
 
         // create position
         token.mint(address(this), 100 ether);
@@ -973,8 +1358,34 @@ contract CDPVaultTest is TestBase {
         assertEq(vault.cash(address(this)), 50 ether);
     }
 
+    function test_exchange_simple_non_reserve() public {
+        CDPVault_TypeB vault = createCDPVault_TypeB(token, 0, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
+
+        // delegate 50 credit to CDPVault
+        createCredit(address(this), 50 ether);
+        vault.delegateCredit(50 ether);
+        
+        // create position
+        token.mint(address(this), 100 ether);
+        token.approve(address(vault), 100 ether);
+        vault.deposit(address(this), 100 ether);
+        vault.modifyCollateralAndDebt(address(this), address(this), address(this), 100 ether, 50 ether);
+
+        // create limit order
+        vault.addLimitPriceTick(WAD, 0);
+        vault.createLimitOrder(WAD);
+        assertEq(vault.cash(address(this)), 0);
+
+        // exchange
+        assertEq(credit(address(vault)), 0);
+        vault.exchange(WAD, 50 ether);
+        assertEq(credit(address(this)), 0);
+        assertEq(credit(address(vault)), 50 ether);
+        assertEq(vault.cash(address(this)), 50 ether);
+    }
+
     function test_exchange_debtFloor() public {
-        CDPVault_TypeA vault = createCDPVault_TypeA(token, 100 ether, 10 ether, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
+        CDPVault_TypeB vault = createCDPVault_TypeB(token, 100 ether, 10 ether, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 0);
 
         // create position
         token.mint(address(this), 100 ether);
@@ -1013,7 +1424,7 @@ contract CDPVaultTest is TestBase {
     }
 
     function test_exchange_multipleTicks() public {
-        CDPVault_TypeA vault = createCDPVault_TypeA(token, 200 ether, 40 ether, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, 1.1 ether, BASE_RATE_1_0, 0, 0);
+        CDPVault_TypeB vault = createCDPVault_TypeB(token, 200 ether, 40 ether, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, 1.1 ether, BASE_RATE_1_0, 0, 0);
 
         // create position
         token.mint(address(this), 400 ether);
@@ -1077,7 +1488,7 @@ contract CDPVaultTest is TestBase {
     }
 
     function test_exchange_skipUnsafe() public {
-        CDPVault_TypeA vault = createCDPVault_TypeA(token, 110 ether, 1 ether, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, 1.1 ether, BASE_RATE_1_0, 0, 0);
+        CDPVault_TypeB vault = createCDPVault_TypeB(token, 110 ether, 1 ether, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, 1.1 ether, BASE_RATE_1_0, 0, 0);
 
         // create position
         token.mint(address(this), 110 ether);
@@ -1120,7 +1531,7 @@ contract CDPVaultTest is TestBase {
     }
     
     function test_emergencyMode() public {
-        CDPVault_TypeA vault = createCDPVault_TypeA(token, 100 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 1 ether);
+        CDPVault_TypeB vault = createCDPVault_TypeB(token, 100 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_0, 0, 1 ether);
 
         // create positions
         token.mint(address(this), 110 ether);
@@ -1146,7 +1557,7 @@ contract CDPVaultTest is TestBase {
     }
 
     function test_exchange_triggersEmergencyMode() public {
-        CDPVault_TypeA vault = createCDPVault_TypeA(token, 100 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_025, 0, 0);
+        CDPVault_TypeB vault = createCDPVault_TypeB(token, 100 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_025, 0, 0);
 
         // create position
         token.mint(address(this), 100 ether);
@@ -1171,7 +1582,7 @@ contract CDPVaultTest is TestBase {
 
     function test_calculateNormalDebt() public {
         uint256 initialDebt = 50 ether;
-        CDPVault_TypeA vault = createCDPVault_TypeA(token, 100 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_025, 0, 1 ether);
+        CDPVault_TypeB vault = createCDPVault_TypeB(token, 100 ether, 0, 1.25 ether, 1.0 ether, 0, 1.05 ether, 0, WAD, BASE_RATE_1_025, 0, 1 ether);
 
         // create position
         token.mint(address(this), 100 ether);
@@ -1201,4 +1612,5 @@ contract CDPVaultTest is TestBase {
         debt = _virtualDebt(vault, address(this));
         assertEq(calculateNormalDebt(debt, rateAccumulator, accruedRebate), initialDebt);
     }
+
 }

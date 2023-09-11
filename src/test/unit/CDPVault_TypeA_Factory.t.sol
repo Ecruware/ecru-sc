@@ -63,7 +63,6 @@ contract CDPVault_TypeA_FactoryTest is TestBase {
         deployer = new CDPVault_TypeA_Deployer();
         factory = new CDPVault_TypeA_Factory(
             deployer,
-            address(unwinderFactory),
             factoryRoleAdmin,
             deployerAdmin,
             pauserAdmin
@@ -116,7 +115,6 @@ contract CDPVault_TypeA_FactoryTest is TestBase {
         assertTrue(vault.hasRole(keccak256("VAULT_CONFIG_ROLE"), vaultAdmin));
         assertTrue(vault.hasRole(keccak256("TICK_MANAGER_ROLE"), tickManager));
         assertTrue(vault.hasRole(keccak256("PAUSER_ROLE"), pauseAdmin));
-        assertTrue(vault.hasRole(keccak256("VAULT_UNWINDER_ROLE"), vaultUnwinder));
     }
 
     function _getOnlyRoleRevertMsg(address account, bytes32 role) internal pure returns (bytes memory) {
@@ -165,7 +163,6 @@ contract CDPVault_TypeA_FactoryTest is TestBase {
                     roleAdmin: roleAdmin,
                     vaultAdmin: vaultAdmin,
                     tickManager: tickManager,
-                    vaultUnwinder: vaultUnwinder,
                     pauseAdmin: pauseAdmin
                 }),
                 100 ether
@@ -215,7 +212,6 @@ contract CDPVault_TypeA_FactoryTest is TestBase {
                 roleAdmin: roleAdmin,
                 vaultAdmin: vaultAdmin,
                 tickManager: tickManager,
-                vaultUnwinder: vaultUnwinder,
                 pauseAdmin: pauseAdmin
             }),
             100 ether
@@ -254,7 +250,6 @@ contract CDPVault_TypeA_FactoryTest is TestBase {
                     roleAdmin: roleAdmin,
                     vaultAdmin: vaultAdmin,
                     tickManager: tickManager,
-                    vaultUnwinder: vaultUnwinder,
                     pauseAdmin: pauseAdmin
                 }),
                 0

@@ -8,17 +8,20 @@ import {IOracle} from "./IOracle.sol";
 import {IBuffer} from "./IBuffer.sol";
 import {ICDPVault_FactoryBase, CDPVaultConstants, CDPVaultConfig} from "./ICDPVault_FactoryBase.sol";
 
-struct CDPVault_TypeAConfig {
+struct CDPVault_TypeBConfig {
     uint64 liquidationPenalty;
     uint64 liquidationDiscount;
     uint64 targetHealthFactor;
+    address vaultUnwinder;
 }
 
-interface ICDPVault_TypeA_Factory is ICDPVault_FactoryBase {
+interface ICDPVault_TypeB_Factory is ICDPVault_FactoryBase {
     function create(
         CDPVaultConstants memory cdpVaultConstants,
-        CDPVault_TypeAConfig memory cdpVaultTypeAConfig,
+        CDPVault_TypeBConfig memory cdpVaultTypeBConfig,
         CDPVaultConfig memory cdpVaultConfig,
         uint256 debtCeiling
     ) external returns (address);
+
+    function creditWithholder() external returns (address);
 }

@@ -3,7 +3,7 @@ pragma solidity ^0.8.19;
 
 import {IERC20} from "openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import {ICDPVault} from "./ICDPVault.sol";
+import {ICDPVault_TypeB} from "./ICDPVault_TypeB.sol";
 import {ICDM} from "./ICDM.sol";
 
 interface ICDPVaultUnwinder {
@@ -18,7 +18,7 @@ interface ICDPVaultUnwinder {
     
     function AUCTION_DURATION() external view returns (uint256);
 
-    function vault() external view returns (ICDPVault);
+    function vault() external view returns (ICDPVault_TypeB);
     
     function cdm() external view returns (ICDM);
     

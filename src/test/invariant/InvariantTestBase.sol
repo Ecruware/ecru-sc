@@ -489,7 +489,6 @@ contract InvariantTestBase is TestBase {
     ) internal returns (CDPVault_TypeAWrapper cdpVaultA) {
         CDPVault_TypeA_Factory factory = new CDPVault_TypeA_Factory(
             new CDPVault_TypeAWrapper_Deployer(),
-            address(new CDPVaultUnwinderFactory()),
             address(this),
             address(this),
             address(this)
@@ -527,7 +526,6 @@ contract InvariantTestBase is TestBase {
                     roleAdmin: address(this),
                     vaultAdmin: address(this),
                     tickManager: address(this),
-                    vaultUnwinder: address(this),
                     pauseAdmin: address(this)
                 }),
                 debtCeiling
