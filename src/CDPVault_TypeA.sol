@@ -11,7 +11,7 @@ import {CDPVault, VAULT_CONFIG_ROLE, calculateDebt} from "./CDPVault.sol";
 /// @notice A CDP-style vault for depositing collateral and drawing credit against it.
 /// TypeA vaults are liquidated permissionlessly by selling as much collateral of an unsafe position until it meets
 /// a targeted collateralization ratio again. Any shortfall from liquidation not being able to be recovered
-/// by selling the available collateral is covered by the global Buffer or the Credit Delegators.
+/// by selling the available collateral is covered by the global Buffer.
 contract CDPVault_TypeA is CDPVault, ICDPVault_TypeA {
 
     /*//////////////////////////////////////////////////////////////
@@ -90,8 +90,7 @@ contract CDPVault_TypeA is CDPVault, ICDPVault_TypeA {
     /// the current spot price. The liquidator has to provide the amount he wants repay or sell (`repayAmounts`) for
     /// each position. From that repay amount a penalty (`liquidationPenalty`) is subtracted to mitigate against
     /// profitable self liquidations. If the available collateral of a position is not sufficient to cover the debt
-    /// the vault is able to apply for a bail out from the global Buffer, any residual bad debt not covered by the 
-    /// Buffer will be attributed to the credit delegators.
+    /// the vault is able to apply for a bail out from the global Buffer.
     /// @dev The liquidator has to approve the vault to transfer the sum of `repayAmounts`.
     /// @param owners Owners of the positions to liquidate
     /// @param repayAmounts Amounts the liquidator wants to repay for each position [wad]

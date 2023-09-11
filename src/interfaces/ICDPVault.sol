@@ -12,7 +12,7 @@ import {IPermission} from "./IPermission.sol";
 import {IInterestRateModel} from "./IInterestRateModel.sol";
 
 /// @title ICDPVaultBase
-/// @notice Interface for the CDPVault without `paused` to avoid unnecessary overrinding of `paused` in CDPVault
+/// @notice Interface for the CDPVault without `paused` to avoid unnecessary overriding of `paused` in CDPVault
 interface ICDPVaultBase is IAccessControl, IPause, IPermission {
 
     function cdm() external view returns (ICDM);
@@ -25,8 +25,6 @@ interface ICDPVaultBase is IAccessControl, IPause, IPermission {
     
     function tokenScale() external view returns (uint256);
 
-    function creditWithholder() external view returns (address);
-    
     function vaultConfig() external view returns (
         uint128 debtFloor, uint64 liquidationRatio, uint64 globalLiquidationRatio
     );
@@ -37,16 +35,6 @@ interface ICDPVaultBase is IAccessControl, IPause, IPermission {
     
     function totalAccruedFees() external view returns (uint256);
 
-    function totalShares() external view returns (uint256);
-
-    function shares(address owner) external view returns (uint256);
-
-    function totalCreditClaimable() external view returns (uint256);
-
-    function epochs(uint256 epoch) external view returns (uint256, uint256, uint256, uint128, uint128);
-
-    function sharesQueuedByEpoch(uint256 epoch, address delegator) external view returns (uint256);
-
     function cash(address owner) external view returns (uint256);
 
     function positions(address owner) external view returns (uint256 collateral, uint256 normalDebt);
@@ -56,15 +44,6 @@ interface ICDPVaultBase is IAccessControl, IPause, IPermission {
     function limitOrders(uint256 limitOrderId) external view returns (uint256);
 
     function limitOrderFloor() external view returns (uint256);
-
-    function delegateCredit(uint256 creditAmount) external returns (uint256 sharesAmount);
-
-    function undelegateCredit(
-        uint256 shareAmount,
-        uint256[] memory prevQueuedEpochs
-    ) external returns (uint256 creditAmount, uint256 epoch, uint256 claimableAtEpoch, uint256 fixableUntilEpoch);
-
-    function claimUndelegatedCredit(uint256 claimForEpoch) external returns (uint256 creditAmount);
 
     function deposit(address to, uint256 amount) external returns (uint256);
 
