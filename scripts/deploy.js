@@ -91,14 +91,14 @@ async function attachContract(name, address) {
   return await ethers.getContractAt(name, address);
 }
 
-async function deployContract(name, ...args) {
+async function deployContract(name, artifactName, ...args) {
   const Contract = await ethers.getContractFactory(name);
   const contract = await Contract.deploy(...args);
   await contract.deployed();
-  console.log(`${name} deployed to: ${contract.address}`);
+  console.log(`${artifactName || name} deployed to: ${contract.address}`);
   await verifyOnTenderly(name, contract.address);
-  await storeContractDeployment(false, name, contract.address, name, args);
-  return contract;
+  await storeContractDeployment(false, artifactName || name, contract.address, name, args);
+  return contract; 
 }
 
 async function deployVault(vaultName, artifactName, vaultFactory, ...args) {
@@ -164,31 +164,35 @@ async function deployCore() {
     await ethers.provider.send('tenderly_setBalance', [[signer], ethers.utils.hexValue(toWad('100').toHexString())]);
   }
 
-  const cdm = await deployContract('CDM', signer, signer, signer);
+  const cdm = await deployContract('CDM', 'CDM',  signer, signer, signer);
   await cdm["setParameter(bytes32,uint256)"](toBytes32("globalDebtCeiling"), CONFIG.Core.CDM.initialGlobalDebtCeiling);
 
   const stablecoin = await deployContract('Stablecoin');
-  const minter = await deployContract('Minter', cdm.address, stablecoin.address, signer, signer);
-  const flashlender = await deployContract('Flashlender', minter.address, CONFIG.Core.Flashlender.constructorArguments.protocolFee_);
+  const minter = await deployContract('Minter', 'Minter', cdm.address, stablecoin.address, signer, signer);
+  const flashlender = await deployContract('Flashlender', 'Flashlender', minter.address, CONFIG.Core.Flashlender.constructorArguments.protocolFee_);
   await deployProxy('Buffer', [cdm.address], [signer, signer]);
   await deployContract('MockOracle');
-  const cdpVaultUnwinderFactory = await deployContract('CDPVaultUnwinderFactory');
 
   // await deployContract('PRBProxyRegistry');
   storeEnvMetadata({PRBProxyRegistry: CONFIG.Core.PRBProxyRegistry});
 
   const swapAction = await deployContract(
-   'SwapAction', ...Object.values(CONFIG.Core.Actions.SwapAction.constructorArguments)
+   'SwapAction', 'SwapAction', ...Object.values(CONFIG.Core.Actions.SwapAction.constructorArguments)
   );
+  const joinAction = await deployContract(
+   'JoinAction', 'JoinAction', ...Object.values(CONFIG.Core.Actions.JoinAction.constructorArguments)
+  );
+
   await deployContract('ERC165Plugin');
-  await deployContract('PositionAction20', flashlender.address, swapAction.address);
-  await deployContract('PositionActionYV', flashlender.address, swapAction.address);
+  await deployContract('PositionAction20', 'PositionAction20', flashlender.address, swapAction.address, joinAction.address);
+  await deployContract('PositionActionYV', 'PositionActionYV', flashlender.address, swapAction.address, joinAction.address);
+  await deployContract('PositionAction4626', 'PositionAction4626', flashlender.address, swapAction.address, joinAction.address);
 
   const cdpVaultTypeADeployer = await deployContract('CDPVault_TypeA_Deployer');
   const cdpVaultTypeAFactory = await deployContract(
     'CDPVault_TypeA_Factory',
+    'CDPVault_TypeA_Factory',
     cdpVaultTypeADeployer.address,
-    cdpVaultUnwinderFactory.address,
     signer, // roleAdmin
     signer, // deployerAdmin
     signer // deployer
@@ -208,6 +212,40 @@ async function deployCore() {
   console.log('------------------------------------');
 }
 
+async function deployAuraVaults() {
+  console.log(`
+/*//////////////////////////////////////////////////////////////
+                        DEPLOYING AURA VAULTS
+//////////////////////////////////////////////////////////////*/
+  `);
+
+  const {
+    MockOracle: oracle,
+  } = await loadDeployedContracts();
+
+  for (const [key, config] of Object.entries(CONFIG.Vendors.AuraVaults)) {
+    const vaultName = key;
+    const constructorArguments = [
+      config.rewardPool,
+      config.asset,
+      oracle.address,
+      config.maxClaimerIncentive,
+      config.maxLockerIncentive,
+      config.tokenName,
+      config.tokenSymbol
+    ];
+    await oracle.updateSpot(config.asset, config.feed.defaultPrice);
+    console.log('Updated default price for', config.asset, 'to', fromWad(config.feed.defaultPrice), 'USD');
+
+    const auraVault = await deployContract("AuraVault", vaultName, ...Object.values(constructorArguments));
+
+    console.log('------------------------------------');
+    console.log('Deployed ', vaultName, 'at', auraVault.address);
+    console.log('------------------------------------');
+    console.log('');
+  }
+}
+
 async function deployVaults() {
   console.log(`
 /*//////////////////////////////////////////////////////////////
@@ -220,13 +258,26 @@ async function deployVaults() {
     CDM: cdm,
     MockOracle: oracle,
     Buffer: buffer,
-    CDPVaultUnwinderFactory: cdpVaultUnwinderFactory,
-    CDPVault_TypeA_Factory: vaultFactory
+    CDPVault_TypeA_Factory: vaultFactory,
+    ...contracts
   } = await loadDeployedContracts();
-
+  
   for (const [key, config] of Object.entries(CONFIG.Vaults)) {
     const vaultName = `CDPVault_TypeA_${key}`;
-    const token = await attachContract('ERC20PresetMinterPauser', config.token);
+    console.log('deploying vault ', vaultName);
+
+    var token;
+    var tokenAddress = config.token;
+
+    // initialize the token
+    if (tokenAddress != "") {
+      token = await attachContract('ERC20PresetMinterPauser', tokenAddress);
+    } else {
+      // search for the token in the deployed contracts
+      token = contracts[config.tokenName];
+      tokenAddress = token.address;
+    }
+
     const tokenScale = new ethers.BigNumber.from(10).pow(await token.decimals());
     const cdpVault_TypeA = await deployVault(
       vaultName,
@@ -236,7 +287,7 @@ async function deployVaults() {
         cdm.address,
         oracle.address,
         buffer.address,
-        config.token,
+        tokenAddress,
         tokenScale,
         ...Object.values(config.deploymentArguments.params)
       ],
@@ -249,7 +300,7 @@ async function deployVaults() {
 
     console.log('Initialized', vaultName, 'with a debt ceiling of', fromWad(config.deploymentArguments.debtCeiling), 'Credit');
 
-    await oracle.updateSpot(config.token, config.oracle.defaultPrice);
+    await oracle.updateSpot(tokenAddress, config.oracle.defaultPrice);
     console.log('Updated default price for', key, 'to', fromWad(config.oracle.defaultPrice), 'USD');
 
     const limitPriceTicks = config.exchange.limitPriceTicks.sort((a, b) => a.gt(b) ? 1 : -1);
@@ -268,12 +319,11 @@ async function deployVaults() {
         name: config.name,
         description: config.description,
         artifactName: 'CDPVault_TypeA',
-        cdpVaultUnwinderFactory: cdpVaultUnwinderFactory.address,
         collateralType: config.collateralType,
         cdm: cdm.address,
         oracle: oracle.address,
         buffer: buffer.address,
-        token: config.token,
+        token: tokenAddress,
         tokenScale: tokenScale,
         tokenSymbol: await token.symbol(),
         tokenName: config.tokenName,
@@ -379,6 +429,7 @@ async function createPositions() {
 
 ((async () => {
   await deployCore();
+  await deployAuraVaults();
   await deployVaults();
   // await logVaults();
   // await createPositions();
