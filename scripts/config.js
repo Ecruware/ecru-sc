@@ -82,7 +82,7 @@ module.exports = {
         "params": {
           "protocolFee": toWad('0.01'),
           "targetUtilizationRatio": toWad('0'),
-          "maxUtilizationRatio": toWad('0'),
+          "maxUtilizationRatio": toWad('1.0'),
           "minInterestRate": toWad('1'),
           "maxInterestRate": toWad('1'),
           "targetInterestRate": toWad('1'),
@@ -132,7 +132,7 @@ module.exports = {
         "params": {
           "protocolFee": toWad('0.01'),
           "targetUtilizationRatio": toWad('0'),
-          "maxUtilizationRatio": toWad('0'),
+          "maxUtilizationRatio": toWad('1.0'),
           "minInterestRate": toWad('1'),
           "maxInterestRate": toWad('1'),
           "targetInterestRate": toWad('1'),
@@ -181,7 +181,7 @@ module.exports = {
         "params": {
           "protocolFee": toWad('0.01'),
           "targetUtilizationRatio": toWad('0'),
-          "maxUtilizationRatio": toWad('0.8'),
+          "maxUtilizationRatio": toWad('1.0'),
           "minInterestRate": toWad('1'),
           "maxInterestRate": toWad('1'),
           "targetInterestRate": toWad('1'),

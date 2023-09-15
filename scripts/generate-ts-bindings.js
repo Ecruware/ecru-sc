@@ -16,6 +16,7 @@ async function main() {
     { name: 'SwapAction', path: '../out/SwapAction.sol/SwapAction.json'},
     { name: 'PositionAction20', path: "../out/PositionAction20.sol/PositionAction20.json"},
     { name: 'PositionActionYV', path: '../out/PositionActionYV.sol/PositionActionYV.json'},
+    { name: 'PositionAction4626', path: '../out/PositionAction4626.sol/PositionAction4626.json'},
     { name: 'PRBProxyRegistry', path: '../out/IPRBProxyRegistry.sol/IPRBProxyRegistry.json' },
     { name: 'PRBProxy', path: '../out/PRBProxy.sol/PRBProxy.json' },
     { name: 'ERC20Permit', path: '../out/ERC20Permit.sol/ERC20Permit.json' },
