@@ -98,7 +98,8 @@ contract PositionAction4626 is PositionAction {
                 joinUpfrontToken, 
                 leverParams.auxJoinToken, 
                 swapAmountOut, 
-                upFrontAmount
+                upFrontAmount,
+                underlyingToken
             );
 
             _delegateCall(
