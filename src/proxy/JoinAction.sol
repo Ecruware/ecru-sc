@@ -144,27 +144,28 @@ contract JoinAction is TransferAction {
         address upFrontToken, 
         address joinToken,
         uint256 flashLoanAmount,
-        uint256 upfrontAmount
-    ) external pure returns (JoinParams memory outParams) {
+        uint256 upfrontAmount,
+        address poolToken
+    ) external returns (JoinParams memory outParams) {
         outParams = joinParams;
         
         if (joinParams.protocol == JoinProtocol.BALANCER) {
             uint256 len = joinParams.assets.length;
             // the offset is needed because of the BPT token that needs to be skipped from the join
-            bool hasOffset = len != joinParams.assetsIn.length;
-            uint256 totalAmount = flashLoanAmount + upfrontAmount;
+            bool skipIndex = false;
+            uint256 joinAmount = flashLoanAmount;
+            if(upFrontToken == joinToken) {
+                joinAmount += upfrontAmount;
+            }
 
-            for (uint256 i = hasOffset ? 1 : 0; i < len;) {
-                uint256 assetInIndex = i - (hasOffset ? 1 : 0);
-                
-                if (joinParams.assets[i] == upFrontToken) {
-                    outParams.maxAmountsIn[i] = totalAmount;
-                    outParams.assetsIn[assetInIndex] = totalAmount;
+            for (uint256 i = 0; i < len;) {
+                uint256 assetIndex = i - (skipIndex ? 1 : 0);
+                if (joinParams.assets[i] == joinToken){
+                    outParams.maxAmountsIn[i] = joinAmount;
+                    outParams.assetsIn[assetIndex] = joinAmount;
                     break;
-                } else if (joinToken == joinParams.assets[i]){
-                    outParams.maxAmountsIn[i] = flashLoanAmount;
-                    outParams.assetsIn[assetInIndex] = flashLoanAmount;
-                    break;
+                } else {
+                    skipIndex = skipIndex || joinParams.assets[i] == poolToken;
                 }
                 unchecked {
                     i++;
