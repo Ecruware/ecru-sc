@@ -146,7 +146,7 @@ contract JoinAction is TransferAction {
         uint256 flashLoanAmount,
         uint256 upfrontAmount,
         address poolToken
-    ) external returns (JoinParams memory outParams) {
+    ) external pure returns (JoinParams memory outParams) {
         outParams = joinParams;
         
         if (joinParams.protocol == JoinProtocol.BALANCER) {
