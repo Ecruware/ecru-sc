@@ -330,6 +330,17 @@ contract SwapAction is TransferAction {
         }
     }
 
+    /// @notice Helper function that decodes the swap params and returns the token that will be swapped into
+    /// @param swapParams The parameters for the swap
+    /// @return token The token that will be swapped into
+    function getSwapToken(SwapParams calldata swapParams) public pure returns (address token) {
+        if(swapParams.swapProtocol == SwapProtocol.BALANCER){
+            (, address[] memory primarySwapPath) = abi.decode(swapParams.args,(bytes32[], address[]));
+            // the last token in the path is the token that will be swapped into
+            token = primarySwapPath[primarySwapPath.length - 1];
+        }
+    }
+
     /// @notice Reverts with the provided error message
     /// @dev if errMsg is empty, reverts with a default error message
     /// @param errMsg Error message to revert with.

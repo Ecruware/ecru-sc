@@ -351,8 +351,7 @@ contract PositionAction4626Test is IntegrationTestBase {
                 args: abi.encode(stablePoolIdArray, assets)
             }),
             auxSwap: emptySwap,
-            auxJoin: emptyJoin,
-            auxJoinToken: address(0)
+            auxJoin: emptyJoin
         });
 
         uint256 expectedAmountOut = _simulateBalancerSwap(leverParams.primarySwap);
@@ -416,8 +415,7 @@ contract PositionAction4626Test is IntegrationTestBase {
                 args: abi.encode(stablePoolIdArray, assets)
             }),
             auxSwap: emptySwap,
-            auxJoin: emptyJoin,
-            auxJoinToken: address(0)
+            auxJoin: emptyJoin
         });
 
         uint256 expectedAmountOut = _simulateBalancerSwap(leverParams.primarySwap);
@@ -494,8 +492,7 @@ contract PositionAction4626Test is IntegrationTestBase {
                 deadline: block.timestamp + 100,
                 args: abi.encode(stablePoolIdArray, auxAssets)
             }),
-            auxJoin: emptyJoin,
-            auxJoinToken: address(0)
+            auxJoin: emptyJoin
         });
 
         // get expected return amounts
@@ -567,8 +564,7 @@ contract PositionAction4626Test is IntegrationTestBase {
                 args: abi.encode(stablePoolIdArray, assets)
             }),
             auxSwap: emptySwap,
-            auxJoin: emptyJoin,
-            auxJoinToken: address(0)
+            auxJoin: emptyJoin
         });
 
         uint256 expectedAmountIn = _simulateBalancerSwap(leverParams.primarySwap);
@@ -652,8 +648,7 @@ contract PositionAction4626Test is IntegrationTestBase {
                 deadline: block.timestamp + 100,
                 args: abi.encode(stablePoolIdArray, auxAssets)
             }),
-            auxJoin: emptyJoin,
-            auxJoinToken: address(0)
+            auxJoin: emptyJoin
         });
 
         // first simulate the primary swap to calculate values for aux swap
@@ -759,8 +754,7 @@ contract PositionAction4626Test is IntegrationTestBase {
                     args: abi.encode(stablePoolIdArray, assets)
                 }),
                 auxSwap: emptySwap, // no aux swap
-                auxJoin: emptyJoin,
-                auxJoinToken: address(0)
+                auxJoin: emptyJoin
             });
         }
 

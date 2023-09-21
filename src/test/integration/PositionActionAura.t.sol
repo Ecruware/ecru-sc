@@ -157,7 +157,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
         assertEq(normalDebt, 0);
     }
 
-    function test_joinAndDeposit() public {
+    function test_joinAndDeposit_withPermit() public {
         uint256 depositAmount = 1000 ether;
         uint256 minOut = 1000 ether;
 
@@ -349,7 +349,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
                 tokens,
                 maxAmountsIn,
                 tokensIn,
-                1,//wstETH is at index 1
+                0,
                 0,
                 joinOutMin
             );
@@ -377,8 +377,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
                 args: abi.encode(weightedPoolIdArray, assets)
             }),
             auxSwap: emptySwap,
-            auxJoin: joinParams,
-            auxJoinToken: address(wstETH)
+            auxJoin: joinParams
         });
 
         vm.prank(user);
@@ -435,7 +434,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
                 tokens,
                 maxAmountsIn,
                 tokensIn,
-                1,//wstETH is at index 1
+                0,
                 0,
                 joinOutMin
             );
@@ -462,8 +461,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
                 args: abi.encode(weightedPoolIdArray, assets)
             }),
             auxSwap: emptySwap,
-            auxJoin: joinParams,
-            auxJoinToken: address(wstETH)
+            auxJoin: joinParams
         });
 
         vm.prank(user);
@@ -517,7 +515,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
                 tokens,
                 maxAmountsIn,
                 tokensIn,
-                1,//wstETH is at index 1
+                0,
                 0,
                 joinOutMin
             );
@@ -552,8 +550,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
                 args: abi.encode(poolIdArray, assets)
             }),
             auxSwap: emptySwap,
-            auxJoin: joinParams,
-            auxJoinToken: address(wstETH)
+            auxJoin: joinParams
         });
 
         vm.prank(user);
@@ -608,7 +605,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
                 tokens,
                 maxAmountsIn,
                 tokensIn,
-                1,//wstETH is at index 1
+                0,
                 0,
                 joinOutMin
             );
@@ -667,8 +664,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
                 deadline: block.timestamp + 100,
                 args: auxArgs
             }),
-            auxJoin: joinParams,
-            auxJoinToken: address(wstETH)
+            auxJoin: joinParams
         });
 
         vm.prank(user);
@@ -700,8 +696,9 @@ contract PositionActionAuraTest is IntegrationTestBase {
         assertEq(lnormalDebt, 0);
     }
 
-    function test_increaseLever_checkTokenOrder() public {
-        uint256 upFrontUnderliers = 20 ether;
+    function test_increaseLever_joinMultipleTokens() public {
+        uint256 upFrontUnderliers = 40000 ether;
+        uint256 upFrontUnderlierOutMin = 0 ether;
         uint256 borrowAmount = 70000 ether;
         uint256 amountOutMin = 0;
         uint256 joinOutMin = 0 ether;
@@ -722,25 +719,43 @@ contract PositionActionAuraTest is IntegrationTestBase {
                 tokens,
                 maxAmountsIn,
                 tokensIn,
-                0,//wstETH is at index 1
+                0,
                 0,
                 joinOutMin
             );
         }
 
-        deal(address(wstETH), user, upFrontUnderliers);
+        deal(address(DAI), user, upFrontUnderliers);
 
-        bytes32[] memory poolIdArray = new bytes32[](3);
-        poolIdArray[0] = stablePoolId; 
-        poolIdArray[1] = wethDaiPoolId;
-        poolIdArray[2] = wstEthWethPoolId;
+        vm.prank(user);
+        ERC20(DAI).approve(address(userProxy), upFrontUnderliers);
 
-        // build increase lever params
-        address[] memory assets = new address[](4);
-        assets[0] = address(stablecoin);
-        assets[1] = address(DAI);
-        assets[2] = address(WETH);
-        assets[3] = address(wstETH);
+        bytes memory auxArgs;
+        bytes memory primaryArgs;
+        {
+            bytes32[] memory auxPoolIdArray = new bytes32[](1);
+            auxPoolIdArray[0] = wethDaiPoolId;
+
+            address[] memory auxAssets = new address[](2);
+            auxAssets[0] = address(DAI);
+            auxAssets[1] = address(WETH);
+
+            auxArgs = abi.encode(auxPoolIdArray, auxAssets);
+
+            bytes32[] memory poolIdArray = new bytes32[](3);
+            poolIdArray[0] = stablePoolId; 
+            poolIdArray[1] = wethDaiPoolId;
+            poolIdArray[2] = wstEthWethPoolId;
+
+            // build increase lever params
+            address[] memory assets = new address[](4);
+            assets[0] = address(stablecoin);
+            assets[1] = address(DAI);
+            assets[2] = address(WETH);
+            assets[3] = address(wstETH);
+
+            primaryArgs = abi.encode(poolIdArray, assets);
+        }
 
         LeverParams memory leverParams = LeverParams({
             position: address(userProxy),
@@ -754,11 +769,19 @@ contract PositionActionAuraTest is IntegrationTestBase {
                 limit: amountOutMin,
                 recipient: address(positionAction),
                 deadline: block.timestamp + 100,
-                args: abi.encode(poolIdArray, assets)
+                args: primaryArgs
             }),
-            auxSwap: emptySwap,
-            auxJoin: joinParams,
-            auxJoinToken: address(wstETH)
+            auxSwap: SwapParams({
+                swapProtocol: SwapProtocol.BALANCER,
+                swapType: SwapType.EXACT_IN,
+                assetIn: address(DAI),
+                amount: upFrontUnderliers,
+                limit: upFrontUnderlierOutMin,
+                recipient: address(positionAction),
+                deadline: block.timestamp + 100,
+                args: auxArgs
+            }),
+            auxJoin: joinParams
         });
 
         vm.prank(user);
@@ -771,7 +794,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
             abi.encodeWithSelector(
                 positionAction.increaseLever.selector,
                 leverParams,
-                address(wstETH),
+                address(DAI),
                 upFrontUnderliers,
                 address(user),
                 emptyPermitParams
