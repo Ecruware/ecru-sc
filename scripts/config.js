@@ -17,7 +17,6 @@ module.exports = {
     "Actions": {
       "SwapAction": {
         "constructorArguments": {
-          "oneInchRouter": "0x1111111254EEB25477B68fb85Ed929f73A960582",
           "balancerVault": "0xBA12222222228d8Ba445958a75a0704d566BF2C8",
           "uniV3Router": "0xE592427A0AEce92De3Edee1F18E0157C05861564"
         }
