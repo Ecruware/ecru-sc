@@ -17,6 +17,30 @@ struct ExactOutputParams {
     uint256 amountInMaximum;
 }
 
+error UniswapV3Router_toAddress_overflow();
+error UniswapV3Router_toAddress_outOfBounds();
+error UniswapV3Router_decodeLastToken_invalidPath();
+
+function toAddress(bytes memory _bytes, uint256 _start) pure returns (address) {
+    if (_start + 20 < _start) revert UniswapV3Router_toAddress_overflow();
+    if(_bytes.length < _start + 20) revert UniswapV3Router_toAddress_outOfBounds();
+    address tempAddress;
+
+    assembly {
+        tempAddress := div(mload(add(add(_bytes, 0x20), _start)), 0x1000000000000000000000000)
+    }
+
+    return tempAddress;
+}
+
+/// @notice Decodes the last token in the path
+/// @param path The bytes encoded swap path
+/// @return token The last token of the given path
+function decodeLastToken(bytes memory path) pure returns (address token) {
+    if (path.length < 20) revert UniswapV3Router_decodeLastToken_invalidPath();
+    token = toAddress(path, path.length - 20);
+}
+
 /// @title Router token swapping functionality
 /// @notice Functions for swapping tokens via Uniswap V3
 interface IUniswapV3Router {

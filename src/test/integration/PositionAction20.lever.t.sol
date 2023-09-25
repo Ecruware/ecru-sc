@@ -146,8 +146,7 @@ contract PositionAction20_Lever_Test is IntegrationTestBase {
                 args: abi.encode(stablePoolIdArray, assets)
             }),
             auxSwap: emptySwap,
-            auxJoin: emptyJoin,
-            auxJoinToken: address(0)
+            auxJoin: emptyJoin
         });
 
         uint256 expectedAmountOut = _simulateBalancerSwap(leverParams.primarySwap);
@@ -240,8 +239,7 @@ contract PositionAction20_Lever_Test is IntegrationTestBase {
                 args: abi.encode(stablePoolIdArray, assets)
             }),
             auxSwap: emptySwap,
-            auxJoin: emptyJoin,
-            auxJoinToken: address(0)
+            auxJoin: emptyJoin
         });
 
         uint256 expectedAmountOut = _simulateBalancerSwap(leverParams.primarySwap);
@@ -302,8 +300,7 @@ contract PositionAction20_Lever_Test is IntegrationTestBase {
                 args: abi.encode(stablePoolIdArray, assets)
             }),
             auxSwap: emptySwap,
-            auxJoin: emptyJoin,
-            auxJoinToken: address(0)
+            auxJoin: emptyJoin
         });
 
         uint256 expectedAmountOut = _simulateBalancerSwap(leverParams.primarySwap);
@@ -378,8 +375,7 @@ contract PositionAction20_Lever_Test is IntegrationTestBase {
                     args: abi.encode(poolIds, assets)
                 }),
                 auxSwap: auxSwap, 
-                auxJoin: emptyJoin,
-                auxJoinToken: address(0)
+                auxJoin: emptyJoin
             });
         }
 
@@ -441,8 +437,7 @@ contract PositionAction20_Lever_Test is IntegrationTestBase {
                     args: abi.encode(stablePoolIdArray, assets)
                 }),
                 auxSwap: emptySwap,
-                auxJoin: emptyJoin,
-                auxJoinToken: address(0)
+                auxJoin: emptyJoin
             });
         }
 
@@ -509,8 +504,7 @@ contract PositionAction20_Lever_Test is IntegrationTestBase {
                     args: abi.encode(stablePoolIdArray, assets)
                 }),
                 auxSwap: emptySwap,
-                auxJoin: emptyJoin,
-                auxJoinToken: address(0)
+                auxJoin: emptyJoin
             });
         }
 
@@ -580,8 +574,7 @@ contract PositionAction20_Lever_Test is IntegrationTestBase {
                     args: abi.encode(stablePoolIdArray, assets)
                 }),
                 auxSwap: emptySwap,
-                auxJoin: emptyJoin,
-auxJoinToken: address(0)
+                auxJoin: emptyJoin
             });
         }
 
@@ -668,8 +661,7 @@ auxJoinToken: address(0)
                 args: abi.encode(stablePoolIdArray, assets)
             }),
             auxSwap: emptySwap,
-            auxJoin: emptyJoin,
-            auxJoinToken: address(0)
+            auxJoin: emptyJoin
         });
 
         uint256 expectedAmountIn = _simulateBalancerSwap(leverParams.primarySwap);
@@ -740,8 +732,7 @@ auxJoinToken: address(0)
                 args: abi.encode(stablePoolIdArray, assets)
             }),
             auxSwap: emptySwap,
-            auxJoin: emptyJoin,
-            auxJoinToken: address(0)
+            auxJoin: emptyJoin
         });
 
         uint256 expectedAmountIn = _simulateBalancerSwap(leverParams.primarySwap);
@@ -810,8 +801,7 @@ auxJoinToken: address(0)
                 args: abi.encode(stablePoolIdArray, assets)
             }),
             auxSwap: emptySwap,
-            auxJoin: emptyJoin,
-            auxJoinToken: address(0)
+            auxJoin: emptyJoin
         });
 
         uint256 expectedAmountIn = _simulateBalancerSwap(leverParams.primarySwap);
@@ -875,8 +865,7 @@ auxJoinToken: address(0)
                 args: abi.encode(stablePoolIdArray, assets)
             }),
             auxSwap: emptySwap,
-            auxJoin: emptyJoin,
-            auxJoinToken: address(0)
+            auxJoin: emptyJoin
         });
 
         uint256 expectedAmountIn = _simulateBalancerSwap(leverParams.primarySwap);
@@ -941,8 +930,7 @@ auxJoinToken: address(0)
                 args: abi.encode(stablePoolIdArray, assets)
             }),
             auxSwap: emptySwap,
-            auxJoin: emptyJoin,
-auxJoinToken: address(0)
+            auxJoin: emptyJoin
         });
 
         uint256 expectedAmountIn = _simulateBalancerSwap(leverParams.primarySwap);
@@ -1007,8 +995,7 @@ auxJoinToken: address(0)
                     args: abi.encode(stablePoolIdArray, assets)
                 }),
                 auxSwap: emptySwap,
-                auxJoin: emptyJoin,
-                auxJoinToken: address(0)
+                auxJoin: emptyJoin
             });
         }
 
@@ -1094,8 +1081,7 @@ auxJoinToken: address(0)
                     deadline: block.timestamp + 100,
                     args: abi.encode(auxPoolIds, auxAssets)
                 }), 
-                auxJoin: emptyJoin,
-                auxJoinToken: address(0)
+                auxJoin: emptyJoin
             });
 
             expectedAmountOut = _simulateBalancerSwap(leverParams.primarySwap);
@@ -1206,8 +1192,7 @@ auxJoinToken: address(0)
                     deadline: block.timestamp + 100,
                     args: abi.encode(auxPoolIds, auxAssets)
                 }), 
-                auxJoin: emptyJoin,
-                auxJoinToken: address(0)
+                auxJoin: emptyJoin
             });
             
             // simulate the primary swap
@@ -1310,8 +1295,7 @@ auxJoinToken: address(0)
                     deadline: block.timestamp + 100,
                     args: abi.encode(stablePoolIdArray, auxAssets)
                 }), 
-                auxJoin: emptyJoin,
-                auxJoinToken: address(0)
+                auxJoin: emptyJoin
             });
             
             // get expected return amounts
@@ -1416,8 +1400,7 @@ auxJoinToken: address(0)
                     deadline: block.timestamp + 100,
                     args: abi.encode(stablePoolIdArray, auxAssets)
                 }), 
-                auxJoin: emptyJoin,
-                auxJoinToken: address(0)
+                auxJoin: emptyJoin
             });
             
             // first simulate the primary swap to calculate values for aux swap
@@ -1520,8 +1503,7 @@ auxJoinToken: address(0)
                     deadline: block.timestamp + 100,
                     args: abi.encode(stablePoolIdArray, auxAssets)
                 }), 
-                auxJoin: emptyJoin,
-                auxJoinToken: address(0)
+                auxJoin: emptyJoin
             });
             
             // get expected return amounts
@@ -1625,8 +1607,7 @@ auxJoinToken: address(0)
                     deadline: block.timestamp + 100,
                     args: abi.encode(stablePoolIdArray, auxAssets)
                 }), 
-                auxJoin: emptyJoin,
-                auxJoinToken: address(0)
+                auxJoin: emptyJoin
             });
             
             // first simulate the primary swap to calculate values for aux swap
@@ -1727,8 +1708,7 @@ auxJoinToken: address(0)
                     deadline: block.timestamp + 100,
                     args: abi.encode(stablePoolIdArray, auxAssets)
                 }), 
-                auxJoin: emptyJoin,
-                auxJoinToken: address(0)
+                auxJoin: emptyJoin
             });
             
             // get expected return amounts
@@ -1832,8 +1812,7 @@ auxJoinToken: address(0)
                     deadline: block.timestamp + 100,
                     args: abi.encode(stablePoolIdArray, auxAssets)
                 }), 
-                auxJoin: emptyJoin,
-                auxJoinToken: address(0)
+                auxJoin: emptyJoin
             });
             
             // first simulate the primary swap to calculate values for aux swap
@@ -1932,8 +1911,7 @@ auxJoinToken: address(0)
                     deadline: block.timestamp + 100,
                     args: abi.encode(stablePoolIdArray, auxAssets)
                 }), 
-                auxJoin: emptyJoin,
-                auxJoinToken: address(0)
+                auxJoin: emptyJoin
             });
         }
 
@@ -2030,8 +2008,7 @@ auxJoinToken: address(0)
                     deadline: block.timestamp + 100,
                     args: abi.encode(stablePoolIdArray, auxAssets)
                 }), 
-                auxJoin: emptyJoin,
-                auxJoinToken: address(0)
+                auxJoin: emptyJoin
             });
             
             // first simulate the primary swap to calculate values for aux swap
@@ -2132,8 +2109,7 @@ auxJoinToken: address(0)
                     args: abi.encode(stablePoolIdArray, assets)
                 }),
                 auxSwap: emptySwap, // no aux swap
-                auxJoin: emptyJoin,
-                auxJoinToken: address(0) 
+                auxJoin: emptyJoin 
             });
 
             expectedAmountIn = _simulateBalancerSwap(leverParams.primarySwap);

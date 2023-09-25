@@ -141,12 +141,12 @@ contract JoinAction is TransferAction {
     /// @param upfrontAmount The amount of the upfront token
     function updateLeverJoin(
         JoinParams memory joinParams, 
-        address upFrontToken, 
         address joinToken,
+        address upFrontToken, 
         uint256 flashLoanAmount,
         uint256 upfrontAmount,
         address poolToken
-    ) external returns (JoinParams memory outParams) {
+    ) external pure returns (JoinParams memory outParams) {
         outParams = joinParams;
         
         if (joinParams.protocol == JoinProtocol.BALANCER) {
@@ -158,12 +158,15 @@ contract JoinAction is TransferAction {
                 joinAmount += upfrontAmount;
             }
 
+            // update the join parameters with the new amounts
             for (uint256 i = 0; i < len;) {
                 uint256 assetIndex = i - (skipIndex ? 1 : 0);
                 if (joinParams.assets[i] == joinToken){
                     outParams.maxAmountsIn[i] = joinAmount;
                     outParams.assetsIn[assetIndex] = joinAmount;
-                    break;
+                } else if (joinParams.assets[i] == upFrontToken && joinParams.assets[i] != poolToken) {
+                    outParams.maxAmountsIn[i] = upfrontAmount;
+                    outParams.assetsIn[assetIndex] = upfrontAmount;
                 } else {
                     skipIndex = skipIndex || joinParams.assets[i] == poolToken;
                 }

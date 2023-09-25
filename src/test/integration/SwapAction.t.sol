@@ -11,7 +11,7 @@ import {PRBProxy} from "prb-proxy/PRBProxy.sol";
 
 import {ISignatureTransfer} from "permit2/interfaces/ISignatureTransfer.sol";
 
-import {IUniswapV3Router} from "../../vendor/IUniswapV3Router.sol";
+import {IUniswapV3Router, decodeLastToken, UniswapV3Router_decodeLastToken_invalidPath} from "../../vendor/IUniswapV3Router.sol";
 import {IVault as IBalancerVault} from "../../vendor/IBalancerVault.sol";
 
 import {PermitMaker} from "../utils/PermitMaker.sol";
@@ -68,7 +68,7 @@ contract SwapActionTest is Test {
     function setUp() public {
         vm.createSelectFork(vm.rpcUrl("mainnet"), 17055414); // 15/04/2023 20:43:00 UTC
 
-        swapAction = new SwapAction(ONE_INCH, balancerVault, univ3Router);
+        swapAction = new SwapAction(balancerVault, univ3Router);
 
         userPk = 0x12341234;
         user = vm.addr(userPk);
@@ -89,6 +89,18 @@ contract SwapActionTest is Test {
         vm.label(address(permit2), "permit2");
         vm.label(address(userProxy), "userProxy");
         vm.label(address(user), "user");
+    }
+
+    function test_uniswapDecode() public {
+        address outToken = decodeLastToken(DAI_USDC_PATH);
+        assertEq(outToken, address(USDC));
+        outToken = decodeLastToken(DAI_WETH_BOND_PATH);
+        assertEq(outToken, address(BOND));
+        outToken = decodeLastToken(DAI_WETH_USDC_PATH);
+        assertEq(outToken, address(USDC));
+
+        vm.expectRevert(UniswapV3Router_decodeLastToken_invalidPath.selector);
+        decodeLastToken(bytes("0x"));
     }
 
     /// ======== transferAndSwap tests ======== ///
@@ -675,247 +687,6 @@ contract SwapActionTest is Test {
         // assert swap success
         assertEq(BAL.balanceOf(user), amountOut);
         assertGe(amountOut, amountOutMin);
-    }
-
-    ///@dev Permit2 transfer and swap on 1inch, using exact-in, with multiple dexes.
-    function test_transferAndSwap_Permit2_1Inch() public {
-        uint256 amountIn = 1_000 * 1e18;
-        uint256 amountOutMin = (amountIn * 97) / 100e12; // allow 2% slippage and convert to USDC decimals
-        deal(address(DAI), user, amountIn);
-
-        // get permit2 signature
-        uint256 deadline = block.timestamp + 100;
-        (uint8 v, bytes32 r, bytes32 s) = PermitMaker.getPermit2TransferFromSignature(
-            address(DAI),
-            address(userProxy),
-            amountIn,
-            NONCE,
-            deadline,
-            userPk
-        );
-
-        PermitParams memory permitParams = PermitParams({
-            approvalType: ApprovalType.PERMIT2,
-            approvalAmount: amountIn,
-            nonce: NONCE,
-            deadline: deadline,
-            v: v,
-            r: r,
-            s: s
-        });
-
-        // create snapshot to revert to after each swap
-        uint256 snapshot = vm.snapshot();
-
-        // SUSHI
-
-        // route through DAI -> WETH -> USDC, at .03% slippage through SUSHI
-        // calldata generated via 1inch api
-        bytes memory args = bytes.concat(
-            hex"f78dc253",
-            bytes32(uint256(uint160(user))), // receiver
-            hex"0000000000000000000000006b175474e89094c44da98b954eedeac495271d0f00000000000000000000000000000000000000000000003635c9adc5dea00000000000000000000000000000000000000000000000000000000000003a9458f200000000000000000000000000000000000000000000000000000000000000a0000000000000000000000000000000000000000000000000000000000000000200000000000000003b6d0340c3d03e4f041fd4cd388c549ee2a29a9e5075882f80000000000000003b6d0340397ff1542f962076d0bfe58ea045ffa2d347aca0cfee7c08"
-        );
-
-        // construct swap params
-        SwapParams memory swapParams = SwapParams({
-            swapProtocol: SwapProtocol.ONEINCH,
-            swapType: SwapType.EXACT_IN,
-            assetIn: address(DAI),
-            amount: amountIn,
-            limit: amountOutMin,
-            recipient: user,
-            deadline: deadline,
-            args: args
-        });
-
-        vm.prank(user);
-        bytes memory response = userProxy.execute(
-            address(swapAction),
-            abi.encodeWithSelector(swapAction.transferAndSwap.selector, user, permitParams, swapParams)
-        );
-        uint256 amountOut = abi.decode(response, (uint256));
-
-        // assert sushi swap success
-        assertEq(USDC.balanceOf(user), amountOut);
-        assertGe(amountOut, amountOutMin);
-
-        // clear state
-        vm.revertTo(snapshot);
-        snapshot = vm.snapshot();
-
-        // CURVE
-        // calldata generated via 1inch api
-        args = bytes.concat(
-            hex"12aa3caf0000000000000000000000007122db0ebe4eb9b434a9f2ffe6760bc03bfbd0e00000000000000000000000006b175474e89094c44da98b954eedeac495271d0f000000000000000000000000a0b86991c6218b36c1d19d4a2e9eb0ce3606eb480000000000000000000000007122db0ebe4eb9b434a9f2ffe6760bc03bfbd0e0",
-            bytes32(uint256(uint160(user))), // receiver
-            hex"00000000000000000000000000000000000000000000003635c9adc5dea00000000000000000000000000000000000000000000000000000000000003a65b5a6000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000001400000000000000000000000000000000000000000000000000000000000000160000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001160000000000000000000000000000000000000000000000f80000ca0000b05120a5407eae9ba41422680e2e00537571bcc53efbfd6b175474e89094c44da98b954eedeac495271d0f00443df02124000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003a65b5a60020d6bdbf78a0b86991c6218b36c1d19d4a2e9eb0ce3606eb4880a06c4eca27a0b86991c6218b36c1d19d4a2e9eb0ce3606eb481111111254eeb25477b68fb85ed929f73a96058200000000000000000000cfee7c08"
-        );
-
-        // construct swap params
-        swapParams = SwapParams({
-            swapProtocol: SwapProtocol.ONEINCH,
-            swapType: SwapType.EXACT_IN,
-            assetIn: address(DAI),
-            amount: amountIn,
-            limit: amountOutMin,
-            recipient: user,
-            deadline: deadline,
-            args: args
-        });
-
-        vm.prank(user);
-        response = userProxy.execute(
-            address(swapAction),
-            abi.encodeWithSelector(swapAction.transferAndSwap.selector, user, permitParams, swapParams)
-        );
-        amountOut = abi.decode(response, (uint256));
-
-        // assert curve swap success
-        assertEq(USDC.balanceOf(user), amountOut);
-        assertGe(amountOut, amountOutMin);
-
-        vm.revertTo(snapshot);
-
-        // UNI V2
-        // calldata generated via 1inch api
-        args = bytes.concat(
-            hex"f78dc253",
-            bytes32(uint256(uint160(user))),
-            hex"0000000000000000000000006b175474e89094c44da98b954eedeac495271d0f00000000000000000000000000000000000000000000003635c9adc5dea00000000000000000000000000000000000000000000000000000000000003ac77eb500000000000000000000000000000000000000000000000000000000000000a0000000000000000000000000000000000000000000000000000000000000000100000000000000003b6d0340ae461ca67b15dc8dc81ce7615e0320da1a9ab8d5cfee7c08"
-        );
-
-        // construct swap params
-        swapParams = SwapParams({
-            swapProtocol: SwapProtocol.ONEINCH,
-            swapType: SwapType.EXACT_IN,
-            assetIn: address(DAI),
-            amount: amountIn,
-            limit: amountOutMin,
-            recipient: user,
-            deadline: deadline,
-            args: args
-        });
-
-        vm.prank(user);
-        response = userProxy.execute(
-            address(swapAction),
-            abi.encodeWithSelector(swapAction.transferAndSwap.selector, user, permitParams, swapParams)
-        );
-        amountOut = abi.decode(response, (uint256));
-
-        // assert univ2 swap success
-        assertEq(USDC.balanceOf(user), amountOut);
-        assertGe(amountOut, amountOutMin);
-    }
-
-    /// ======== oneInchSwap tests ======== ///
-
-    ///@dev Test that correct error is thrown when there is no 1inch revert message.
-    function test_revert_swap1Inch_emptyMsg() public {
-        uint256 amountIn = 1 * 1e18; // swap more DAI than userProxy has to trigger revert
-
-        // sanity check that userProxy has less than amountIn
-        assertLt(DAI.balanceOf(address(userProxy)), amountIn);
-
-        // calldata generated via 1inch api
-        // route DAI 1_001 -> WETH -> USDC at .03% slippage through SUSHI
-        bytes
-            memory sushiSwapArgs = hex"0502b1c50000000000000000000000006b175474e89094c44da98b954eedeac495271d0f0000000000000000000000003643AA6479860400000000000000000000000000000000000000000000000000000000000039efb87b0000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000200000000000000003b6d0340c3d03e4f041fd4cd388c549ee2a29a9e5075882f80000000000000003b6d0340397ff1542f962076d0bfe58ea045ffa2d347aca0cfee7c08";
-
-        
-        // construct swap params
-        SwapParams memory swapParams = SwapParams({
-            swapProtocol: SwapProtocol.ONEINCH,
-            swapType: SwapType.EXACT_IN,
-            assetIn: address(DAI),
-            amount: amountIn,
-            limit: amountIn * 99/100,
-            recipient: address(userProxy),
-            deadline: block.timestamp + 100,
-            args: sushiSwapArgs
-        });
-
-        vm.expectRevert(abi.encodeWithSignature("SwapAction__revertBytes_emptyRevertBytes()"));
-        vm.prank(user);
-        userProxy.execute(
-            address(swapAction),
-            abi.encodeWithSelector(swapAction.swap.selector, swapParams)
-        );
-    }
-
-    ///@dev Test that revert messages from 1inch are relayed correctly.
-    function test_revert_swap1Inch_nonEmptyMsg() public {
-        uint256 amountIn = 1_000 * 1e18; // swap more DAI than userProxy has to trigger revert
-
-        // sanity check that userProxy has zero DAI in it
-        assertEq(DAI.balanceOf(address(userProxy)), 0);
-
-        // route through DAI -> WETH -> USDC, at .03% slippage through SUSHI
-        // calldata generated via 1inch api
-        bytes
-            memory sushiSwapArgs = hex"0502b1c50000000000000000000000006b175474e89094c44da98b954eedeac495271d0f000000000000000000000000000000000000000000000000002386f26fc1000000000000000000000000000000000000000000000000000000000000000026120000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000100000000000000003b6d0340aaf5110db6e744ff70fb339de037b990a20bdacecfee7c08";
-
-
-        // construct swap params
-        SwapParams memory swapParams = SwapParams({
-            swapProtocol: SwapProtocol.ONEINCH,
-            swapType: SwapType.EXACT_IN,
-            assetIn: address(DAI),
-            amount: amountIn,
-            limit: amountIn * 99/100,
-            recipient: address(userProxy),
-            deadline: block.timestamp + 100,
-            args: sushiSwapArgs
-        });
-
-        vm.expectRevert("Dai/insufficient-balance");
-        vm.prank(user);
-        userProxy.execute(
-            address(swapAction),
-            abi.encodeWithSelector(swapAction.swap.selector, swapParams)
-        );
-    }
-
-    function test_swap_notSupported() public {
-        uint256 amountIn = 1_000 * 1e18;
-        uint256 amountOutMin = (amountIn * 97) / 100e12; // allow 2% slippage and convert to USDC decimals
-        deal(address(DAI), user, amountIn);
-
-        PermitParams memory permitParams;
-        uint256 deadline = block.timestamp + 100;
-
-        // route through DAI -> WETH -> USDC, at .03% slippage through SUSHI
-        // calldata generated via 1inch api
-        bytes memory args = bytes.concat(
-            hex"f78dc253",
-            bytes32(uint256(uint160(user))), // receiver
-            hex"0000000000000000000000006b175474e89094c44da98b954eedeac495271d0f00000000000000000000000000000000000000000000003635c9adc5dea00000000000000000000000000000000000000000000000000000000000003a9458f200000000000000000000000000000000000000000000000000000000000000a0000000000000000000000000000000000000000000000000000000000000000200000000000000003b6d0340c3d03e4f041fd4cd388c549ee2a29a9e5075882f80000000000000003b6d0340397ff1542f962076d0bfe58ea045ffa2d347aca0cfee7c08"
-        );
-
-        // construct swap params
-        SwapParams memory swapParams = SwapParams({
-            swapProtocol: SwapProtocol.ONEINCH,
-            swapType: SwapType.EXACT_IN,
-            assetIn: address(DAI),
-            amount: amountIn,
-            limit: amountOutMin,
-            recipient: user,
-            deadline: deadline,
-            args: args
-        });
-
-        vm.prank(user);
-        DAI.approve(address(userProxy), amountIn);
-
-        // trigger SwapAction__swap_notSupported
-        swapParams.swapType = SwapType.EXACT_OUT;
-        vm.prank(user);
-        vm.expectRevert(SwapAction.SwapAction__swap_notSupported.selector);
-        userProxy.execute(
-            address(swapAction),
-            abi.encodeWithSelector(swapAction.transferAndSwap.selector, user, permitParams, swapParams)
-        );
     }
 }
 

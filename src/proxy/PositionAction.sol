@@ -58,8 +58,6 @@ struct LeverParams {
     SwapParams auxSwap;
     // optional join parameters to join underlier tokens to the vault for collateral tokens
     JoinParams auxJoin;
-    // optional token that is swapped and needs to be joined to the pool
-    address auxJoinToken;
 }
 
 /// @title PositionAction
