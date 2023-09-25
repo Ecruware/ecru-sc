@@ -158,6 +158,7 @@ contract JoinAction is TransferAction {
                 joinAmount += upfrontAmount;
             }
 
+            // update the join parameters with the new amounts
             for (uint256 i = 0; i < len;) {
                 uint256 assetIndex = i - (skipIndex ? 1 : 0);
                 if (joinParams.assets[i] == joinToken){

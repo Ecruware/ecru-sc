@@ -4,7 +4,7 @@ pragma solidity ^0.8.19;
 import {SafeERC20} from "openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import {IUniswapV3Router, ExactInputParams, ExactOutputParams} from "../vendor/IUniswapV3Router.sol";
+import {IUniswapV3Router, ExactInputParams, ExactOutputParams, decodeLastToken} from "../vendor/IUniswapV3Router.sol";
 import {IVault, SwapKind, BatchSwapStep, FundManagement} from "../vendor/IBalancerVault.sol";
 
 import {toInt256, abs} from "../utils/Math.sol";
@@ -14,7 +14,6 @@ import {TransferAction, PermitParams} from "./TransferAction.sol";
 /// @notice The swap protocol to use
 enum SwapProtocol {
     BALANCER,
-    ONEINCH,
     UNIV3
 }
 
@@ -35,7 +34,6 @@ struct SwapParams {
     uint256 deadline;
     /// @dev `args` can be used for protocol specific parameters
     /// For Balancer, it is the `poolIds` and `assetPath`
-    /// For 1inch, it is the `callData` for the swap
     /// For Uniswap v3, it is the `path` for the swap
     bytes args;
 }
@@ -53,8 +51,6 @@ contract SwapAction is TransferAction {
                                 STORAGE
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice 1inch AggregatorRouterV5
-    address public immutable oneInchRouter;
     /// @notice Balancer v2 Vault
     IVault public immutable balancerVault;
     /// @notice Uniswap v3 Router
@@ -71,8 +67,7 @@ contract SwapAction is TransferAction {
                              INITIALIZATION
     //////////////////////////////////////////////////////////////*/
 
-    constructor(address oneInchRouter_, IVault balancerVault_, IUniswapV3Router uniRouter_) {
-        oneInchRouter = oneInchRouter_;
+    constructor(IVault balancerVault_, IUniswapV3Router uniRouter_) {
         balancerVault = balancerVault_;
         uniRouter = uniRouter_;
     }
@@ -114,9 +109,7 @@ contract SwapAction is TransferAction {
                 swapParams.recipient,
                 swapParams.deadline
             );
-        } else if (swapParams.swapProtocol == SwapProtocol.ONEINCH && swapParams.swapType == SwapType.EXACT_IN) {
-            retAmount = oneInchSwap(swapParams.assetIn, swapParams.amount, swapParams.args);
-        } else if (swapParams.swapProtocol == SwapProtocol.UNIV3) {
+        }  else if (swapParams.swapProtocol == SwapProtocol.UNIV3) {
             retAmount = uniV3Swap(
                 swapParams.swapType,
                 swapParams.assetIn,
@@ -269,20 +262,6 @@ contract SwapAction is TransferAction {
         );
     }
 
-    /// @notice Perform an EXACT_IN swap using 1inch v5 aggregator router
-    /// @dev This function does not support EXACT_OUT swaps
-    /// @param assetIn Token to swap from
-    /// @param amountIn Amount of `assetIn` to swap
-    /// @param payload tx calldata to use when calling the one inch router, 
-    /// this calldata can be generated using the 1inch api
-    /// @return _ Amount of tokens received from the swap
-    function oneInchSwap(address assetIn, uint256 amountIn, bytes memory payload) internal returns (uint256) {
-        IERC20(assetIn).forceApprove(address(oneInchRouter), amountIn);
-        (bool success, bytes memory result) = oneInchRouter.call(payload);
-        if (!success) _revertBytes(result);
-        return abi.decode(result, (uint256));
-    }
-
     /// @notice Perform a swap using uniswap v3 exactInput or exactOutput function
     /// @param swapType The type of swap to perform
     /// @param assetIn Asset to send during the swap:
@@ -338,6 +317,10 @@ contract SwapAction is TransferAction {
             (, address[] memory primarySwapPath) = abi.decode(swapParams.args,(bytes32[], address[]));
             // the last token in the path is the token that will be swapped into
             token = primarySwapPath[primarySwapPath.length - 1];
+        } else if (swapParams.swapProtocol == SwapProtocol.UNIV3) {
+            token = decodeLastToken(swapParams.args);
+        } else {
+            revert SwapAction__swap_notSupported();
         }
     }
 

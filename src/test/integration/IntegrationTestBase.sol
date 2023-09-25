@@ -86,7 +86,7 @@ contract IntegrationTestBase is TestBase {
         super.setUp();
 
         prbProxyRegistry = new PRBProxyRegistry();
-        swapAction = new SwapAction(ONE_INCH, balancerVault, univ3Router);
+        swapAction = new SwapAction(balancerVault, univ3Router);
         joinAction = new JoinAction(BALANCER_VAULT);
 
         // configure balancer pools

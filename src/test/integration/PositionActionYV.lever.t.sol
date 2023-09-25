@@ -86,7 +86,7 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
         _yearnVaultDeposit(yvUSDT, 1_000_000*1e6);
 
         // deploy actions
-        swapAction = new SwapAction(ONE_INCH, balancerVault, univ3Router);
+        swapAction = new SwapAction(balancerVault, univ3Router);
         positionAction = new PositionActionYV(address(flashlender), address(swapAction), address(joinAction));
 
         // configure oracle spot prices
