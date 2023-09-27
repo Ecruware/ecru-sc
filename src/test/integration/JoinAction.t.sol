@@ -112,12 +112,14 @@ contract JoinActionTest is IntegrationTestBase {
 
         joinParams = JoinParams({
             protocol: JoinProtocol.BALANCER,
-            poolId: poolId,
-            assets: tokens,
-            assetsIn: tokensIn,
-            maxAmountsIn: maxAmountsIn,
             minOut: 0,
-            recipient: user
+            recipient: user,
+            args: abi.encode(
+                poolId,
+                tokens,
+                tokensIn,
+                maxAmountsIn
+            )
         });
 
 
@@ -166,12 +168,14 @@ contract JoinActionTest is IntegrationTestBase {
 
         joinParams = JoinParams({
             protocol: JoinProtocol.BALANCER,
-            poolId: poolId,
-            assets: tokens,
-            assetsIn: tokensIn,
-            maxAmountsIn: maxAmountsIn,
             minOut: 0,
-            recipient: user
+            recipient: user,
+            args: abi.encode(
+                poolId,
+                tokens,
+                tokensIn,
+                maxAmountsIn
+            )
         });
 
         vm.startPrank(user);

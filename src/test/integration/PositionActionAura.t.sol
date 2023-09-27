@@ -270,13 +270,16 @@ contract PositionActionAuraTest is IntegrationTestBase {
 
         joinParams = JoinParams({
             protocol: JoinProtocol.BALANCER,
-            poolId: wstETH_WETH_PoolId,
-            assets: tokens,
-            assetsIn: tokensIn,
-            maxAmountsIn: maxAmountsIn,
-            minOut: joinMinOut,
-            recipient: user
-        });
+            minOut: 0,
+            recipient: user,
+            args: abi.encode(
+                wstETH_WETH_PoolId,
+                tokens,
+                tokensIn,
+                maxAmountsIn
+            )
+        });        
+
 
         CollateralParams memory collateralParams = CollateralParams({
             targetToken: address(wstETH_WETH_BPT),
@@ -832,7 +835,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
         uint256[] memory tokensIn,
         uint256 permitIndex,
         uint256 depositAmount,
-        uint256 minOut
+        uint256 minOut_
     ) view internal returns (
         JoinParams memory joinParams,
         PermitParams[] memory permitParams
@@ -860,12 +863,14 @@ contract PositionActionAuraTest is IntegrationTestBase {
 
         joinParams = JoinParams({
             protocol: JoinProtocol.BALANCER,
-            poolId: poolId_,
-            assets: tokens,
-            assetsIn: tokensIn,
-            maxAmountsIn: maxAmountsIn,
-            minOut: minOut,
-            recipient: user_
+            minOut: minOut_,
+            recipient: user_,
+            args: abi.encode(
+                poolId_,
+                tokens,
+                tokensIn,
+                maxAmountsIn
+            )
         });
     }
 

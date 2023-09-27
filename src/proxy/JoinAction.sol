@@ -9,20 +9,18 @@ import {IVault, JoinKind, JoinPoolRequest} from "../vendor/IBalancerVault.sol";
 
 /// @notice The join protocol to use
 enum JoinProtocol {
-    BALANCER
+    BALANCER,
+    UNIV3
 }
 
 /// @notice The parameters for a join
 struct JoinParams {
     JoinProtocol protocol;
-    bytes32 poolId;
-    address[] assets;
-    // used for exact token in joins
-    // can be different from `assets` if BPT is one of the assets
-    uint256[] assetsIn;
-    uint256[] maxAmountsIn;
     uint256 minOut;
     address recipient;
+    
+    /// @dev `args` can be used for protocol specific parameters
+    bytes args;
 }
 
 contract JoinAction is TransferAction {
@@ -44,6 +42,7 @@ contract JoinAction is TransferAction {
     //////////////////////////////////////////////////////////////*/
 
     error JoinAction__join_unsupportedProtocol();
+    error JoinAction__transferAndJoin_unsupportedProtocol();
     error JoinAction__transferAndJoin_invalidPermitParams();
 
     /*//////////////////////////////////////////////////////////////
@@ -69,21 +68,27 @@ contract JoinAction is TransferAction {
         JoinParams calldata joinParams
     ) external {
         if (from != address(this)) {
-            if (
-                joinParams.assets.length != 
-                permitParams.length
-            ) {
-                revert JoinAction__transferAndJoin_invalidPermitParams();
-            }
+            if (joinParams.protocol == JoinProtocol.BALANCER) {
+                (, address[] memory assets, , uint256[] memory maxAmountsIn) = abi.decode(joinParams.args, (bytes32, address[], uint256[], uint256[]));
 
-            for (uint256 i = 0; i < joinParams.assets.length;) {
-                if (joinParams.maxAmountsIn[i] != 0) {
-                    _transferFrom(joinParams.assets[i], from, address(this), joinParams.maxAmountsIn[i], permitParams[i]);
+                if (
+                    assets.length != 
+                    permitParams.length
+                ) {
+                    revert JoinAction__transferAndJoin_invalidPermitParams();
                 }
-                
-                unchecked {
-                    ++i;
+
+                for (uint256 i = 0; i < assets.length;) {
+                    if (maxAmountsIn[i] != 0) {
+                        _transferFrom(assets[i], from, address(this), maxAmountsIn[i], permitParams[i]);
+                    }
+                    
+                    unchecked {
+                        ++i;
+                    }
                 }
+            } else {
+                revert JoinAction__transferAndJoin_unsupportedProtocol();
             }
         }
 
@@ -93,25 +98,10 @@ contract JoinAction is TransferAction {
     /// @notice Perform a join using the specified protocol
     /// @param joinParams The parameters for the join
     function join(JoinParams memory joinParams) public {
-        address approveTarget;
-        if(joinParams.protocol == JoinProtocol.BALANCER) {
-            approveTarget = address(balancerVault);
-        } else {
-            revert JoinAction__join_unsupportedProtocol();
-        }
-
-        for (uint256 i = 0; i < joinParams.assets.length;) {
-            if (joinParams.maxAmountsIn[i] != 0) {
-                IERC20(joinParams.assets[i]).forceApprove(approveTarget, joinParams.maxAmountsIn[i]);
-            }
-
-            unchecked {
-                ++i;
-            }
-        }
-
         if(joinParams.protocol == JoinProtocol.BALANCER) {
             balancerJoin(joinParams);
+        } else {
+            revert JoinAction__join_unsupportedProtocol();
         }
     }
 
@@ -119,15 +109,32 @@ contract JoinAction is TransferAction {
     /// @param joinParams The parameters for the join
     /// @dev For more information regarding the Balancer join function check the 
     /// documentation in {IBalancerVault}
-    function balancerJoin(JoinParams memory joinParams) public {
+    function balancerJoin(JoinParams memory joinParams) internal {
+        (
+            bytes32 poolId, 
+            address[] memory assets,
+            uint256[] memory assetsIn,
+            uint256[] memory maxAmountsIn
+        ) = abi.decode(joinParams.args, (bytes32, address[], uint256[], uint256[]));
+        
+        for (uint256 i = 0; i < assets.length;) {
+            if (maxAmountsIn[i] != 0) {
+                IERC20(assets[i]).forceApprove(address(balancerVault), maxAmountsIn[i]);
+            }
+
+            unchecked {
+                ++i;
+            }
+        }
+
         balancerVault.joinPool(
-            joinParams.poolId,
+            poolId,
             address(this),
             joinParams.recipient,
             JoinPoolRequest({
-                assets: joinParams.assets,
-                maxAmountsIn: joinParams.maxAmountsIn,
-                userData: abi.encode(JoinKind.EXACT_TOKENS_IN_FOR_BPT_OUT, joinParams.assetsIn, joinParams.minOut),
+                assets: assets,
+                maxAmountsIn: maxAmountsIn,
+                userData: abi.encode(JoinKind.EXACT_TOKENS_IN_FOR_BPT_OUT, assetsIn, joinParams.minOut),
                 fromInternalBalance: false
             })
         );
@@ -150,7 +157,14 @@ contract JoinAction is TransferAction {
         outParams = joinParams;
         
         if (joinParams.protocol == JoinProtocol.BALANCER) {
-            uint256 len = joinParams.assets.length;
+            (
+                bytes32 poolId, 
+                address[] memory assets,
+                uint256[] memory assetsIn,
+                uint256[] memory maxAmountsIn
+            ) = abi.decode(joinParams.args, (bytes32, address[], uint256[], uint256[]));
+
+            uint256 len = assets.length;
             // the offset is needed because of the BPT token that needs to be skipped from the join
             bool skipIndex = false;
             uint256 joinAmount = flashLoanAmount;
@@ -161,20 +175,22 @@ contract JoinAction is TransferAction {
             // update the join parameters with the new amounts
             for (uint256 i = 0; i < len;) {
                 uint256 assetIndex = i - (skipIndex ? 1 : 0);
-                if (joinParams.assets[i] == joinToken){
-                    outParams.maxAmountsIn[i] = joinAmount;
-                    outParams.assetsIn[assetIndex] = joinAmount;
-                } else if (joinParams.assets[i] == upFrontToken && joinParams.assets[i] != poolToken) {
-                    outParams.maxAmountsIn[i] = upfrontAmount;
-                    outParams.assetsIn[assetIndex] = upfrontAmount;
+                if (assets[i] == joinToken){
+                    maxAmountsIn[i] = joinAmount;
+                    assetsIn[assetIndex] = joinAmount;
+                } else if (assets[i] == upFrontToken && assets[i] != poolToken) {
+                    maxAmountsIn[i] = upfrontAmount;
+                    assetsIn[assetIndex] = upfrontAmount;
                 } else {
-                    skipIndex = skipIndex || joinParams.assets[i] == poolToken;
+                    skipIndex = skipIndex || assets[i] == poolToken;
                 }
                 unchecked {
                     i++;
                 }
             }
+
+            // update the join parameters
+            outParams.args = abi.encode(poolId, assets, assetsIn, maxAmountsIn);
         }
     }
-
 }

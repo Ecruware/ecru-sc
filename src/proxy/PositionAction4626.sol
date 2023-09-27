@@ -89,7 +89,7 @@ contract PositionAction4626 is PositionAction {
 
         address underlyingToken = IERC4626(leverParams.collateralToken).asset();
         // join into the pool if needed
-        if (leverParams.auxJoin.poolId != bytes32(0)) {
+        if (leverParams.auxJoin.args.length != 0) {
             address joinToken = swapAction.getSwapToken(leverParams.primarySwap);
             address joinUpfrontToken = upFrontToken;
 
