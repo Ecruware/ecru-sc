@@ -172,7 +172,7 @@ contract AuraVault is IERC4626, ERC4626, AccessControl {
         uint256 shares = previewWithdraw(assets);
 
         // Withdraw assets from Aura reward pool and send to "receiver"
-        IPool(rewardPool).withdraw(assets, false);
+        IPool(rewardPool).withdraw(assets, address(this), address(this));
 
         _withdraw(_msgSender(), receiver, owner, assets, shares);
 
@@ -195,7 +195,7 @@ contract AuraVault is IERC4626, ERC4626, AccessControl {
         uint256 assets = previewRedeem(shares);
 
         // Withdraw assets from Aura reward pool and send to "receiver"
-        IPool(rewardPool).withdraw(assets, false);
+        IPool(rewardPool).withdraw(assets, address(this), address(this));
 
         _withdraw(_msgSender(), receiver, owner, assets, shares);
 

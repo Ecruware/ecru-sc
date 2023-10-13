@@ -16,7 +16,7 @@ import {calculateNormalDebt} from "../CDPVault.sol";
 import {TransferAction, PermitParams} from "./TransferAction.sol";
 import {BaseAction} from "./BaseAction.sol";
 import {SwapAction, SwapParams, SwapType} from "./SwapAction.sol";
-import {JoinAction, JoinParams} from "./JoinAction.sol";
+import {PoolAction, PoolActionParams} from "./PoolAction.sol";
 
 import {IFlashlender, IERC3156FlashBorrower, ICreditFlashBorrower} from "../interfaces/IFlashlender.sol";
 
@@ -56,8 +56,8 @@ struct LeverParams {
     SwapParams primarySwap;
     // optional swap parameters to swap an arbitrary token to the collateral token or vice versa
     SwapParams auxSwap;
-    // optional join parameters to join underlier tokens to the vault for collateral tokens
-    JoinParams auxJoin;
+    // optional action parameters 
+    PoolActionParams auxAction;
 }
 
 /// @title PositionAction
@@ -91,8 +91,8 @@ abstract contract PositionAction is IERC3156FlashBorrower, ICreditFlashBorrower,
     address public immutable self;
     /// @notice The SwapAction contract
     SwapAction public immutable swapAction;
-    /// @notice The JoinAction contract
-    JoinAction public immutable joinAction;
+    /// @notice The PoolAction contract
+    PoolAction public immutable poolAction;
 
     /*//////////////////////////////////////////////////////////////
                                  ERRORS
@@ -115,14 +115,14 @@ abstract contract PositionAction is IERC3156FlashBorrower, ICreditFlashBorrower,
                              INITIALIZATION
     //////////////////////////////////////////////////////////////*/
 
-    constructor(address flashlender_, address swapAction_, address joinAction_) {
+    constructor(address flashlender_, address swapAction_, address poolAction_) {
         flashlender = IFlashlender(flashlender_);
         stablecoin = flashlender.stablecoin();
         minter = flashlender.minter();
         cdm = flashlender.cdm();
         self = address(this);
         swapAction = SwapAction(swapAction_);
-        joinAction = JoinAction(joinAction_);
+        poolAction = PoolAction(poolAction_);
         cdm.modifyPermission(address(minter), true);
         cdm.modifyPermission(flashlender_, true);
     }
@@ -540,7 +540,6 @@ abstract contract PositionAction is IERC3156FlashBorrower, ICreditFlashBorrower,
                 // otherwise just send the collateral to `residualRecipient`
                 IERC20(leverParams.primarySwap.assetIn).safeTransfer(residualRecipient, residualAmount);
             }
-
         }
 
         return CALLBACK_SUCCESS_CREDIT;

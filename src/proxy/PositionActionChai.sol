@@ -42,7 +42,7 @@ contract PositionActionChai is PositionAction {
                              INITIALIZATION
     //////////////////////////////////////////////////////////////*/
 
-    constructor(address flashlender_, address swapActions_, address joinAction_) PositionAction(flashlender_, swapActions_, joinAction_) {}
+    constructor(address flashlender_, address swapActions_, address PoolAction_) PositionAction(flashlender_, swapActions_, PoolAction_) {}
 
     /*//////////////////////////////////////////////////////////////
                          VIRTUAL IMPLEMENTATION

@@ -110,7 +110,7 @@ contract PositionAction20Test is IntegrationTestBase {
         userProxy = PRBProxy(payable(address(prbProxyRegistry.deployFor(user))));
 
         // deploy position actions
-        positionAction = new PositionAction20(address(flashlender), address(swapAction), address(joinAction));
+        positionAction = new PositionAction20(address(flashlender), address(swapAction), address(poolAction));
 
         // set up variables to avoid stack too deep
         stablePoolIdArray.push(stablePoolId);

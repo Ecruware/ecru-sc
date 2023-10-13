@@ -11,7 +11,7 @@ import {CDPVault_TypeA} from "../../CDPVault_TypeA.sol";
 import {IntegrationTestBase} from "./IntegrationTestBase.sol";
 import {PermitParams} from "../../proxy/TransferAction.sol";
 import {SwapAction, SwapParams, SwapType, SwapProtocol} from "../../proxy/SwapAction.sol";
-import {JoinAction, JoinParams, JoinProtocol} from "../../proxy/JoinAction.sol";
+import {PoolAction, PoolActionParams, Protocol} from "../../proxy/PoolAction.sol";
 import {PositionAction, LeverParams, CollateralParams} from "../../proxy/PositionAction.sol";
 import {ApprovalType, PermitParams} from "../../proxy/TransferAction.sol";
 import {ISignatureTransfer} from "permit2/interfaces/ISignatureTransfer.sol";
@@ -29,6 +29,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
 
     bytes32 wstETH_WETH_PoolId = 0x93d199263632a4ef4bb438f1feb99e57b4b5f0bd0000000000000000000005c2;
     address wstETH_WETH_BPT = 0x93d199263632a4EF4Bb438F1feB99e57b4b5f0BD;
+    address BAL = 0xba100000625a3754423978a60c9317c58a424e3D;
 
     address constant wstETH = 0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0;
     ERC4626 constant auraRewardsPool = ERC4626(0x2a14dB8D09dB0542f6A371c0cB308A768227D67D);
@@ -59,6 +60,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
         vm.label(BALANCER_VAULT, "balancer");
         vm.label(wstETH, "wstETH");
         vm.label(wstETH_WETH_BPT, "wstETH-WETH-BPT");
+        vm.label(BAL, "BAL");
 
         // configure permissions and system settings
         setGlobalDebtCeiling(15_000_000 ether);
@@ -74,6 +76,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
         });
 
         vm.label(address(auraVault), "auraVault");
+        vm.label(address(auraRewardsPool), "auraRewardsPool");
 
         // deploy vaults
         vault = createCDPVault_TypeA(
@@ -99,7 +102,9 @@ contract PositionActionAuraTest is IntegrationTestBase {
         uint256 balancerTokenRate = _getBalancerTokenRateInUSD();
         oracle.updateSpot(address(wstETH_WETH_BPT), balancerTokenRate);
         oracle.updateSpot(address(auraVault), balancerTokenRate);
+        oracle.updateSpot(address(WETH),_getWETHRateInUSD());
         oracle.updateSpot(address(stablecoin), _getStablecoinRateInUSD());
+        oracle.updateSpot(address(BAL), _getBALRateInUSD());
 
         // configure vaults
         cdm.setParameter(address(vault), "debtCeiling", 5_000_000 ether);
@@ -121,35 +126,13 @@ contract PositionActionAuraTest is IntegrationTestBase {
         weightedPoolIdArray.push(weightedPoolId); 
 
         // deploy position actions
-        positionAction = new PositionAction4626(address(flashlender), address(swapAction), address(joinAction));
+        positionAction = new PositionAction4626(address(flashlender), address(swapAction), address(poolAction));
     }
 
     function test_deposit() public {
         uint256 depositAmount = 10_000 ether;
 
-        deal(address(wstETH_WETH_BPT), user, depositAmount);
-
-        CollateralParams memory collateralParams = CollateralParams({
-            targetToken: address(wstETH_WETH_BPT),
-            amount: depositAmount,
-            collateralizer: address(user),
-            auxSwap: emptySwap
-        });
-
-        vm.prank(user);
-        ERC20(wstETH_WETH_BPT).approve(address(userProxy), depositAmount);
-
-        vm.prank(user);
-        userProxy.execute(
-            address(positionAction),
-            abi.encodeWithSelector(
-                positionAction.deposit.selector,
-                address(userProxy),
-                address(vault),
-                collateralParams,
-                emptyPermitParams
-            )
-        );
+        _deposit(userProxy, address(vault), depositAmount);
 
         (uint256 collateral, uint256 normalDebt) = vault.positions(address(userProxy));
 
@@ -163,7 +146,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
 
         deal(wstETH, user, depositAmount);
 
-        JoinParams memory joinParams;
+        PoolActionParams memory poolActionParams;
         PermitParams[] memory permitParams;
         {
             address[] memory tokens = new address[](3);
@@ -176,7 +159,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
             uint256[] memory tokensIn = new uint256[](2);
             tokensIn[0] = depositAmount;
             
-            (joinParams, permitParams) = _getJoinActionParams(
+            (poolActionParams, permitParams) = _getPoolActionParams(
                 user,
                 wstETH_WETH_PoolId,
                 tokens,
@@ -200,15 +183,15 @@ contract PositionActionAuraTest is IntegrationTestBase {
         ERC20(wstETH_WETH_BPT).approve(address(userProxy), minOut);
 
         address[] memory targets = new address[](2);
-        targets[0] = address(joinAction);
+        targets[0] = address(poolAction);
         targets[1] = address(positionAction);
 
         bytes[] memory data = new bytes[](2);
         data[0] = abi.encodeWithSelector(
-            joinAction.transferAndJoin.selector,
+            PoolAction.transferAndJoin.selector,
             user,
             permitParams,
-            joinParams
+            poolActionParams
         );
 
         data[1] = abi.encodeWithSelector(
@@ -246,9 +229,9 @@ contract PositionActionAuraTest is IntegrationTestBase {
         deal(wstETH, user, wstETHAmount);
         deal(address(WETH), user, wETHAmount);
 
-        JoinParams memory joinParams;
+        PoolActionParams memory poolActionParams;
 
-        // transfer the tokens to the proxy and call join on the joinAction
+        // transfer the tokens to the proxy and call join on the PoolAction
         vm.startPrank(user);
         ERC20(wstETH).transfer(address(userProxy), wstETHAmount);
         ERC20(address(WETH)).transfer(address(userProxy), wETHAmount);
@@ -268,15 +251,18 @@ contract PositionActionAuraTest is IntegrationTestBase {
         tokensIn[0] = wstETHAmount;
         tokensIn[1] = wETHAmount;
 
-        joinParams = JoinParams({
-            protocol: JoinProtocol.BALANCER,
-            poolId: wstETH_WETH_PoolId,
-            assets: tokens,
-            assetsIn: tokensIn,
-            maxAmountsIn: maxAmountsIn,
-            minOut: joinMinOut,
-            recipient: user
-        });
+        poolActionParams = PoolActionParams({
+            protocol: Protocol.BALANCER,
+            minOut: 0,
+            recipient: user,
+            args: abi.encode(
+                wstETH_WETH_PoolId,
+                tokens,
+                tokensIn,
+                maxAmountsIn
+            )
+        });        
+
 
         CollateralParams memory collateralParams = CollateralParams({
             targetToken: address(wstETH_WETH_BPT),
@@ -290,13 +276,13 @@ contract PositionActionAuraTest is IntegrationTestBase {
         vm.stopPrank();
 
         address[] memory targets = new address[](2);
-        targets[0] = address(joinAction);
+        targets[0] = address(poolAction);
         targets[1] = address(positionAction);
 
         bytes[] memory data = new bytes[](2);
         data[0] = abi.encodeWithSelector(
-            joinAction.join.selector,
-            joinParams
+            PoolAction.join.selector,
+            poolActionParams
         );
 
         data[1] = abi.encodeWithSelector(
@@ -330,10 +316,10 @@ contract PositionActionAuraTest is IntegrationTestBase {
     function test_increaseLever_balancerToken_upfront() public {
         uint256 upFrontUnderliers = 20 ether;
         uint256 borrowAmount = 70000 ether;
-        uint256 amountOutMin = 69000 ether;
+        uint256 amountOutMin = wdiv(69000 ether, _getWETHRateInUSD());
         uint256 joinOutMin = 0 ether;
 
-        JoinParams memory joinParams;
+        PoolActionParams memory poolActionParams;
         {
             address[] memory tokens = new address[](3);
             tokens[0] = wstETH;
@@ -343,7 +329,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
             uint256[] memory maxAmountsIn = new uint256[](3);
             uint256[] memory tokensIn = new uint256[](2);
             
-            (joinParams, ) = _getJoinActionParams(
+            (poolActionParams, ) = _getPoolActionParams(
                 address(positionAction), 
                 wstETH_WETH_PoolId,
                 tokens,
@@ -377,7 +363,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
                 args: abi.encode(weightedPoolIdArray, assets)
             }),
             auxSwap: emptySwap,
-            auxJoin: joinParams
+            auxAction: poolActionParams
         });
 
         vm.prank(user);
@@ -413,84 +399,11 @@ contract PositionActionAuraTest is IntegrationTestBase {
     }
 
     function test_increaseLever_balancerUnderlier_upfront() public {
-        uint256 upFrontUnderliers = 10 ether;
+        uint256 upFrontUnderliers = 14 ether;
         uint256 borrowAmount = 70000 ether;
-        uint256 amountOutMin = 69000 ether;
+        uint256 amountOutMin = wdiv(69000 ether, _getWETHRateInUSD());
         uint256 joinOutMin = 0 ether;
-
-        JoinParams memory joinParams;
-        {
-            address[] memory tokens = new address[](3);
-            tokens[0] = wstETH;
-            tokens[1] = wstETH_WETH_BPT;
-            tokens[2] = address(WETH);
-
-            uint256[] memory maxAmountsIn = new uint256[](3);
-            uint256[] memory tokensIn = new uint256[](2);
-            
-            (joinParams, ) = _getJoinActionParams(
-                address(positionAction),
-                wstETH_WETH_PoolId, 
-                tokens,
-                maxAmountsIn,
-                tokensIn,
-                0,
-                0,
-                joinOutMin
-            );
-        }
-        deal(address(wstETH), user, upFrontUnderliers);
-
-        // build increase lever params
-        address[] memory assets = new address[](2);
-        assets[0] = address(stablecoin);
-        assets[1] = address(wstETH);
-
-        LeverParams memory leverParams = LeverParams({
-            position: address(userProxy),
-            vault: address(vault),
-            collateralToken: address(auraVault),
-            primarySwap: SwapParams({
-                swapProtocol: SwapProtocol.BALANCER,
-                swapType: SwapType.EXACT_IN,
-                assetIn: address(stablecoin),
-                amount: borrowAmount,
-                limit: amountOutMin,
-                recipient: address(positionAction),
-                deadline: block.timestamp + 100,
-                args: abi.encode(weightedPoolIdArray, assets)
-            }),
-            auxSwap: emptySwap,
-            auxJoin: joinParams
-        });
-
-        vm.prank(user);
-        ERC20(wstETH).approve(address(userProxy), upFrontUnderliers);
-
-        // call increaseLever
-        vm.prank(user);
-        userProxy.execute(
-            address(positionAction),
-            abi.encodeWithSelector(
-                positionAction.increaseLever.selector,
-                leverParams,
-                address(wstETH),
-                upFrontUnderliers,
-                address(user),
-                emptyPermitParams
-            )
-        );
-
-        (uint256 collateral, uint256 normalDebt) = vault.positions(address(userProxy));
-        assertGe(collateral, auraVault.convertToShares(joinOutMin));
-
-        // assert normalDebt is the same as the amount of stablecoin borrowed
-        assertEq(normalDebt, borrowAmount);
-
-        // assert leverAction position is empty
-        (uint256 lcollateral, uint256 lnormalDebt) = vault.positions(address(positionAction));
-        assertEq(lcollateral, 0);
-        assertEq(lnormalDebt, 0);
+        _joinHelper(upFrontUnderliers, borrowAmount, amountOutMin, joinOutMin);
     }
 
     function test_increaseLever_multiswap() public {
@@ -499,7 +412,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
         uint256 amountOutMin = 0;
         uint256 joinOutMin = 0 ether;
 
-        JoinParams memory joinParams;
+        PoolActionParams memory poolActionParams;
         {
             address[] memory tokens = new address[](3);
             tokens[0] = wstETH;
@@ -509,7 +422,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
             uint256[] memory maxAmountsIn = new uint256[](3);
             uint256[] memory tokensIn = new uint256[](2);
             
-            (joinParams, ) = _getJoinActionParams(
+            (poolActionParams, ) = _getPoolActionParams(
                 address(positionAction),
                 wstETH_WETH_PoolId, 
                 tokens,
@@ -550,7 +463,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
                 args: abi.encode(poolIdArray, assets)
             }),
             auxSwap: emptySwap,
-            auxJoin: joinParams
+            auxAction: poolActionParams
         });
 
         vm.prank(user);
@@ -589,7 +502,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
         uint256 amountOutMin = 0;
         uint256 joinOutMin = 0 ether;
         
-        JoinParams memory joinParams;
+        PoolActionParams memory poolActionParams;
         {
             address[] memory tokens = new address[](3);
             tokens[0] = wstETH;
@@ -599,7 +512,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
             uint256[] memory maxAmountsIn = new uint256[](3);
             uint256[] memory tokensIn = new uint256[](2);
             
-            (joinParams, ) = _getJoinActionParams(
+            (poolActionParams, ) = _getPoolActionParams(
                 address(positionAction),
                 wstETH_WETH_PoolId,
                 tokens,
@@ -664,7 +577,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
                 deadline: block.timestamp + 100,
                 args: auxArgs
             }),
-            auxJoin: joinParams
+            auxAction: poolActionParams
         });
 
         vm.prank(user);
@@ -703,7 +616,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
         uint256 amountOutMin = 0;
         uint256 joinOutMin = 0 ether;
 
-        JoinParams memory joinParams;
+        PoolActionParams memory poolActionParams;
         {
             address[] memory tokens = new address[](3);
             tokens[0] = wstETH;
@@ -713,7 +626,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
             uint256[] memory maxAmountsIn = new uint256[](3);
             uint256[] memory tokensIn = new uint256[](2);
             
-            (joinParams, ) = _getJoinActionParams(
+            (poolActionParams, ) = _getPoolActionParams(
                 address(positionAction),
                 wstETH_WETH_PoolId,
                 tokens,
@@ -781,7 +694,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
                 deadline: block.timestamp + 100,
                 args: auxArgs
             }),
-            auxJoin: joinParams
+            auxAction: poolActionParams
         });
 
         vm.prank(user);
@@ -813,6 +726,226 @@ contract PositionActionAuraTest is IntegrationTestBase {
         assertEq(lnormalDebt, 0);
     }
 
+    function test_withdraw() public {
+        uint256 initialDeposit = 1_000 ether;
+        _deposit(userProxy, address(vault), initialDeposit);
+
+        // build withdraw params
+        SwapParams memory auxSwap;
+        CollateralParams memory collateralParams = CollateralParams({
+            targetToken: address(wstETH_WETH_BPT),
+            amount: initialDeposit,
+            collateralizer: address(user),
+            auxSwap: auxSwap
+        });
+
+        vm.prank(user);
+        userProxy.execute(
+            address(positionAction),
+            abi.encodeWithSelector(
+                positionAction.withdraw.selector,
+                address(userProxy), // user proxy is the position
+                address(vault),
+                collateralParams
+            )
+        );
+
+        (uint256 collateral, uint256 normalDebt) = vault.positions(address(userProxy));
+        assertEq(collateral, 0);
+        assertEq(normalDebt, 0);
+
+        (int256 balance,) = cdm.accounts(address(userProxy));
+        assertEq(balance, 0);
+
+        assertEq(ERC20(wstETH_WETH_BPT).balanceOf(user), initialDeposit);
+    }
+
+    function test_decreaseLever() public {
+        uint256 upFrontUnderliers = 14 ether;
+        uint256 borrowAmount = 70000 ether;
+        uint256 amountOutMin = wdiv(69000 ether, _getWETHRateInUSD());
+        uint256 joinOutMin = 0 ether;
+
+        _joinHelper(upFrontUnderliers, borrowAmount, amountOutMin, joinOutMin);
+
+        (uint256 initialCollateral, uint256 initialNormalDebt) = vault.positions(address(userProxy));
+
+        uint256 amountOut = initialNormalDebt;
+        uint256 maxAmountIn = initialCollateral;
+        uint256 subCollateral = auraVault.previewWithdraw(maxAmountIn);
+
+        address[] memory assets = new address[](2);
+        assets[0] = address(stablecoin);
+        assets[1] = address(wstETH);
+
+        PoolActionParams memory poolActionParams;
+        {
+            address[] memory tokens = new address[](3);
+            tokens[0] = wstETH;
+            tokens[1] = wstETH_WETH_BPT;
+            tokens[2] = address(WETH);
+
+            uint256[] memory minAmountsOut = new uint256[](3);
+            uint256 outIndex = 0;
+            uint256 bptAmount = subCollateral;
+
+            poolActionParams = PoolActionParams({
+                protocol: Protocol.BALANCER,
+                minOut: 0,
+                recipient: address(positionAction),
+                args: abi.encode(
+                    wstETH_WETH_PoolId,
+                    wstETH_WETH_BPT,
+                    bptAmount,
+                    outIndex,
+                    tokens,
+                    minAmountsOut
+                )
+            });
+        }
+
+        LeverParams memory leverParams = LeverParams({
+            position: address(userProxy),
+            vault: address(vault),
+            collateralToken: address(auraVault),
+            primarySwap: SwapParams({
+                swapProtocol: SwapProtocol.BALANCER,
+                swapType: SwapType.EXACT_OUT,
+                assetIn: address(wstETH),
+                amount: amountOut, // exact amount of stablecoin to receive
+                limit: maxAmountIn,
+                recipient: address(positionAction),
+                deadline: block.timestamp + 100,
+                args: abi.encode(weightedPoolIdArray, assets)
+            }),
+            auxSwap: emptySwap,
+            auxAction: poolActionParams
+        });
+
+        // call decreaseLever
+        vm.startPrank(user);
+        userProxy.execute(
+            address(positionAction),
+            abi.encodeWithSelector(
+                positionAction.decreaseLever.selector, // function
+                leverParams, // lever params
+                subCollateral, // collateral to decrease by
+                address(userProxy) // residualRecipient
+            )
+        );
+        vm.stopPrank();
+
+        (uint256 collateral, uint256 normalDebt) = vault.positions(address(userProxy));
+
+        // assert new collateral amount is the same as initialCollateral minus the amount of DAI we swapped for stablecoin
+        assertEq(collateral, initialCollateral - subCollateral);
+
+        // assert new normalDebt is the same as initialNormalDebt minus the amount of stablecoin we received from swapping DAI
+        assertEq(normalDebt, initialNormalDebt - amountOut);
+
+        // ensure there isn't any left over debt or collateral from using leverAction
+        (uint256 lcollateral, uint256 lnormalDebt) = vault.positions(address(positionAction));
+        assertEq(lcollateral, 0);
+        assertEq(lnormalDebt, 0);
+    }
+
+    function _deposit(PRBProxy proxy, address vault_, uint256 amount) internal {
+        CDPVault_TypeA cdpVault = CDPVault_TypeA(vault_);
+        deal(address(wstETH_WETH_BPT), user, amount);
+
+        CollateralParams memory collateralParams = CollateralParams({
+            targetToken: address(wstETH_WETH_BPT),
+            amount: amount,
+            collateralizer: address(user),
+            auxSwap: emptySwap
+        });
+
+        vm.prank(user);
+        ERC20(wstETH_WETH_BPT).approve(address(proxy), amount);
+
+        vm.prank(user);
+        proxy.execute(
+            address(positionAction),
+            abi.encodeWithSelector(
+                positionAction.deposit.selector,
+                address(proxy),
+                address(cdpVault),
+                collateralParams,
+                emptyPermitParams
+            )
+        );
+    }
+
+    function _joinHelper(
+        uint256 upFrontUnderliers,
+        uint256 borrowAmount,
+        uint256 amountOutMin,
+        uint256 joinOutMin
+    ) internal {
+        PoolActionParams memory poolActionParams;
+        {
+            address[] memory tokens = new address[](3);
+            tokens[0] = wstETH;
+            tokens[1] = wstETH_WETH_BPT;
+            tokens[2] = address(WETH);
+
+            uint256[] memory maxAmountsIn = new uint256[](3);
+            uint256[] memory tokensIn = new uint256[](2);
+            
+            (poolActionParams, ) = _getPoolActionParams(
+                address(positionAction),
+                wstETH_WETH_PoolId, 
+                tokens,
+                maxAmountsIn,
+                tokensIn,
+                0,
+                0,
+                joinOutMin
+            );
+        }
+        deal(address(wstETH), user, upFrontUnderliers);
+
+        // build increase lever params
+        address[] memory assets = new address[](2);
+        assets[0] = address(stablecoin);
+        assets[1] = address(wstETH);
+
+        LeverParams memory leverParams = LeverParams({
+            position: address(userProxy),
+            vault: address(vault),
+            collateralToken: address(auraVault),
+            primarySwap: SwapParams({
+                swapProtocol: SwapProtocol.BALANCER,
+                swapType: SwapType.EXACT_IN,
+                assetIn: address(stablecoin),
+                amount: borrowAmount,
+                limit: amountOutMin,
+                recipient: address(positionAction),
+                deadline: block.timestamp + 100,
+                args: abi.encode(weightedPoolIdArray, assets)
+            }),
+            auxSwap: emptySwap,
+            auxAction: poolActionParams
+        });
+
+        vm.prank(user);
+        ERC20(wstETH).approve(address(userProxy), upFrontUnderliers);
+
+        // call increaseLever
+        vm.prank(user);
+        userProxy.execute(
+            address(positionAction),
+            abi.encodeWithSelector(
+                positionAction.increaseLever.selector,
+                leverParams,
+                address(wstETH),
+                upFrontUnderliers,
+                address(user),
+                emptyPermitParams
+            )
+        );
+    }
+
     /// @dev Helper function that returns the lp token rate in USD
     function _getBalancerTokenRateInUSD() internal returns (uint256 price) {
         (, uint256[] memory balances, ) = IVault(BALANCER_VAULT).getPoolTokens(wstETH_WETH_PoolId);
@@ -823,8 +956,8 @@ contract PositionActionAuraTest is IntegrationTestBase {
         return wdiv(tokenWSTETHSupply + tokenWETHSupply, totalSupply);
     }
 
-    /// @dev Helper function that returns a joinParams struct and a permitParams array for a wstETH join
-    function _getJoinActionParams(
+    /// @dev Helper function that returns a PoolActionParams struct and a permitParams array for a wstETH join
+    function _getPoolActionParams(
         address user_,
         bytes32 poolId_,
         address[] memory tokens,
@@ -832,9 +965,9 @@ contract PositionActionAuraTest is IntegrationTestBase {
         uint256[] memory tokensIn,
         uint256 permitIndex,
         uint256 depositAmount,
-        uint256 minOut
+        uint256 minOut_
     ) view internal returns (
-        JoinParams memory joinParams,
+        PoolActionParams memory poolActionParams,
         PermitParams[] memory permitParams
     ) {
         uint256 deadline = block.timestamp + 100;
@@ -858,14 +991,16 @@ contract PositionActionAuraTest is IntegrationTestBase {
             s: s
         });
 
-        joinParams = JoinParams({
-            protocol: JoinProtocol.BALANCER,
-            poolId: poolId_,
-            assets: tokens,
-            assetsIn: tokensIn,
-            maxAmountsIn: maxAmountsIn,
-            minOut: minOut,
-            recipient: user_
+        poolActionParams = PoolActionParams({
+            protocol: Protocol.BALANCER,
+            minOut: minOut_,
+            recipient: user_,
+            args: abi.encode(
+                poolId_,
+                tokens,
+                tokensIn,
+                maxAmountsIn
+            )
         });
     }
 

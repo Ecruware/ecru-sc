@@ -12,7 +12,7 @@ import {WAD} from "../../utils/Math.sol";
 import {IntegrationTestBase} from "./IntegrationTestBase.sol";
 
 import {PermitParams} from "../../proxy/TransferAction.sol";
-import {JoinAction, JoinParams, JoinProtocol} from "../../proxy/JoinAction.sol";
+import {PoolAction, PoolActionParams, Protocol} from "../../proxy/PoolAction.sol";
 
 import {ApprovalType, PermitParams} from "../../proxy/TransferAction.sol";
 import {ISignatureTransfer} from "permit2/interfaces/ISignatureTransfer.sol";
@@ -21,7 +21,7 @@ import {PositionAction4626} from "../../proxy/PositionAction4626.sol";
 
 import {IVault, JoinKind, JoinPoolRequest} from "../../vendor/IBalancerVault.sol";
 
-contract JoinActionTest is IntegrationTestBase {
+contract PoolActionTest is IntegrationTestBase {
     using SafeERC20 for ERC20;
 
     address wstETH_bb_a_WETH_BPTl = 0x41503C9D499ddbd1dCdf818a1b05e9774203Bf46;
@@ -70,7 +70,7 @@ contract JoinActionTest is IntegrationTestBase {
         deal(wstETH, user, depositAmount);
         deal(bbaweth, user, depositAmount);
 
-        JoinParams memory joinParams;
+        PoolActionParams memory poolActionParams;
         PermitParams memory permitParams;
 
         uint256 deadline = block.timestamp + 100;
@@ -110,29 +110,29 @@ contract JoinActionTest is IntegrationTestBase {
         tokensIn[0] = depositAmount;
         tokensIn[1] = 0;
 
-        joinParams = JoinParams({
-            protocol: JoinProtocol.BALANCER,
-            poolId: poolId,
-            assets: tokens,
-            assetsIn: tokensIn,
-            maxAmountsIn: maxAmountsIn,
+        poolActionParams = PoolActionParams({
+            protocol: Protocol.BALANCER,
             minOut: 0,
-            recipient: user
+            recipient: user,
+            args: abi.encode(
+                poolId,
+                tokens,
+                tokensIn,
+                maxAmountsIn
+            )
         });
 
 
         vm.startPrank(user);
         userProxy.execute(
-            address(joinAction),
+            address(poolAction),
             abi.encodeWithSelector(
-                joinAction.transferAndJoin.selector,
+                PoolAction.transferAndJoin.selector,
                 user,
                 permitParamsArray,
-                joinParams
+                poolActionParams
             )
         );
-
-        // check the join action worked
     }
 
     function test_join_multipleTokens() public {
@@ -142,9 +142,9 @@ contract JoinActionTest is IntegrationTestBase {
         deal(wstETH, user, wstETHAmount);
         deal(bbaweth, user, bbawethAmount);
 
-        JoinParams memory joinParams;
+        PoolActionParams memory poolActionParams;
 
-        // transfer the tokens to the proxy and call join on the joinAction
+        // transfer the tokens to the proxy and call join on the PoolAction
         vm.startPrank(user);
         ERC20(wstETH).transfer(address(userProxy), wstETHAmount);
         ERC20(bbaweth).transfer(address(userProxy), bbawethAmount);
@@ -164,14 +164,16 @@ contract JoinActionTest is IntegrationTestBase {
         tokensIn[0] = wstETHAmount;
         tokensIn[1] = bbawethAmount;
 
-        joinParams = JoinParams({
-            protocol: JoinProtocol.BALANCER,
-            poolId: poolId,
-            assets: tokens,
-            assetsIn: tokensIn,
-            maxAmountsIn: maxAmountsIn,
+        poolActionParams = PoolActionParams({
+            protocol: Protocol.BALANCER,
             minOut: 0,
-            recipient: user
+            recipient: user,
+            args: abi.encode(
+                poolId,
+                tokens,
+                tokensIn,
+                maxAmountsIn
+            )
         });
 
         vm.startPrank(user);
@@ -179,14 +181,14 @@ contract JoinActionTest is IntegrationTestBase {
         vm.stopPrank();
 
         address[] memory targets = new address[](2);
-        targets[0] = address(joinAction);
+        targets[0] = address(poolAction);
 
         vm.startPrank(user);
         userProxy.execute(
-            address(joinAction),
+            address(poolAction),
             abi.encodeWithSelector(
-                joinAction.join.selector,
-                joinParams
+                PoolAction.join.selector,
+                poolActionParams
             )
         );
     }
