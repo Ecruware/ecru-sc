@@ -22,7 +22,7 @@ contract PositionAction20 is PositionAction {
                              INITIALIZATION
     //////////////////////////////////////////////////////////////*/
 
-    constructor(address flashlender_, address swapAction_, address joinAction_ ) PositionAction(flashlender_, swapAction_, joinAction_) {}
+    constructor(address flashlender_, address swapAction_, address PoolAction_ ) PositionAction(flashlender_, swapAction_, PoolAction_) {}
 
     /*//////////////////////////////////////////////////////////////
                          VIRTUAL IMPLEMENTATION

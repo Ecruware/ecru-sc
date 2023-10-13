@@ -88,7 +88,7 @@ contract PositionActionYVTest is IntegrationTestBase {
         userProxy = PRBProxy(payable(address(prbProxyRegistry.deployFor(user))));
 
         // deploy borrow actions
-        positionAction = new PositionActionYV(address(flashlender), address(swapAction), address(joinAction));
+        positionAction = new PositionActionYV(address(flashlender), address(swapAction), address(poolAction));
 
         // add liquidity to yearn vaults to simulate withdrawals
         _yearnVaultDeposit(yvDAI, 1_000_000*1e18, address(this));

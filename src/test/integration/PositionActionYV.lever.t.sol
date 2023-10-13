@@ -87,7 +87,7 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
 
         // deploy actions
         swapAction = new SwapAction(balancerVault, univ3Router);
-        positionAction = new PositionActionYV(address(flashlender), address(swapAction), address(joinAction));
+        positionAction = new PositionActionYV(address(flashlender), address(swapAction), address(poolAction));
 
         // configure oracle spot prices
         oracle.updateSpot(address(yvDAI), yvDAI.pricePerShare());
@@ -137,7 +137,7 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
                 args: abi.encode(stablePoolIdArray, assets)
             }),
             auxSwap: emptySwap, // no aux swap
-            auxJoin: emptyJoin 
+            auxAction: emptyJoin 
         });
 
         uint256 expectedAmountOut = _simulateBalancerSwap(leverParams.primarySwap);
@@ -217,7 +217,7 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
                 args: abi.encode(poolIds, assets)
             }),
             auxSwap: emptySwap,
-            auxJoin: emptyJoin
+            auxAction: emptyJoin
         });
 
         uint256 expectedAmountOut = _simulateBalancerSwap(leverParams.primarySwap);
@@ -302,7 +302,7 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
                 args: abi.encode(stablePoolIdArray, assets)
             }),
             auxSwap: emptySwap,
-            auxJoin: emptyJoin
+            auxAction: emptyJoin
         });
 
         uint256 expectedAmountIn = _simulateBalancerSwap(leverParams.primarySwap);
@@ -380,7 +380,7 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
                 args: abi.encode(stablePoolIdArray, assets)
             }),
             auxSwap: emptySwap,
-            auxJoin: emptyJoin
+            auxAction: emptyJoin
         });
 
         uint256 expectedAmountIn = _simulateBalancerSwap(leverParams.primarySwap);
@@ -454,7 +454,7 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
                 args: abi.encode(stablePoolIdArray, assets)
             }),
             auxSwap: emptySwap,
-            auxJoin: emptyJoin
+            auxAction: emptyJoin
         });
 
         uint256 expectedAmountIn = _simulateBalancerSwap(leverParams.primarySwap);
@@ -541,7 +541,7 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
                     deadline: block.timestamp + 100,
                     args: abi.encode(auxPoolIds, auxAssets)
                 }),
-                auxJoin: emptyJoin
+                auxAction: emptyJoin
             });
         }
 
@@ -649,7 +649,7 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
                     deadline: block.timestamp + 100,
                     args: abi.encode(auxPoolIds, auxAssets)
                 }),
-                auxJoin: emptyJoin
+                auxAction: emptyJoin
             });
         }
 
@@ -749,7 +749,7 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
                     deadline: block.timestamp + 100,
                     args: abi.encode(stablePoolIdArray, auxAssets)
                 }),
-                auxJoin: emptyJoin
+                auxAction: emptyJoin
             });
         }
 
@@ -855,7 +855,7 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
                     deadline: block.timestamp + 100,
                     args: abi.encode(stablePoolIdArray, auxAssets)
                 }),
-                auxJoin: emptyJoin
+                auxAction: emptyJoin
             });
         }
 
@@ -955,7 +955,7 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
                     deadline: block.timestamp + 100,
                     args: abi.encode(stablePoolIdArray, auxAssets)
                 }),
-                auxJoin: emptyJoin
+                auxAction: emptyJoin
             });
         }
 
@@ -1061,7 +1061,7 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
                     deadline: block.timestamp + 100,
                     args: abi.encode(stablePoolIdArray, auxAssets)
                 }),
-                auxJoin: emptyJoin
+                auxAction: emptyJoin
             });
         }
 
@@ -1143,7 +1143,7 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
                 args: abi.encode(stablePoolIdArray, assets)
             }),
             auxSwap: emptySwap,
-            auxJoin: emptyJoin
+            auxAction: emptyJoin
         });
 
         uint256 expectedAmountOut = _simulateBalancerSwap(leverParams.primarySwap);
@@ -1220,7 +1220,7 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
                 args: abi.encode(stablePoolIdArray, assets)
             }),
             auxSwap: emptySwap,
-            auxJoin: emptyJoin
+            auxAction: emptyJoin
         });
 
         uint256 expectedAmountOut = _simulateBalancerSwap(leverParams.primarySwap);
@@ -1309,7 +1309,7 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
                     args: abi.encode(stablePoolIdArray, assets)
                 }),
                 auxSwap: emptySwap,
-                auxJoin: emptyJoin
+                auxAction: emptyJoin
             });
         }
 

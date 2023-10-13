@@ -5,17 +5,17 @@ import {SafeERC20} from "openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol"
 import {IERC20} from "openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {TransferAction, PermitParams} from "./TransferAction.sol";
 
-import {IVault, JoinKind, JoinPoolRequest} from "../vendor/IBalancerVault.sol";
+import {IVault, JoinKind, JoinPoolRequest, ExitKind, ExitPoolRequest} from "../vendor/IBalancerVault.sol";
 
-/// @notice The join protocol to use
-enum JoinProtocol {
+/// @notice The protocol to use
+enum Protocol {
     BALANCER,
     UNIV3
 }
 
 /// @notice The parameters for a join
-struct JoinParams {
-    JoinProtocol protocol;
+struct PoolActionParams {
+    Protocol protocol;
     uint256 minOut;
     address recipient;
     
@@ -23,7 +23,7 @@ struct JoinParams {
     bytes args;
 }
 
-contract JoinAction is TransferAction {
+contract PoolAction is TransferAction {
     /*//////////////////////////////////////////////////////////////
                                LIBRARIES
     //////////////////////////////////////////////////////////////*/
@@ -41,9 +41,10 @@ contract JoinAction is TransferAction {
                                  ERRORS
     //////////////////////////////////////////////////////////////*/
 
-    error JoinAction__join_unsupportedProtocol();
-    error JoinAction__transferAndJoin_unsupportedProtocol();
-    error JoinAction__transferAndJoin_invalidPermitParams();
+    error PoolAction__join_unsupportedProtocol();
+    error PoolAction__transferAndJoin_unsupportedProtocol();
+    error PoolAction__transferAndJoin_invalidPermitParams();
+    error PoolAction__exit_unsupportedProtocol();
 
     /*//////////////////////////////////////////////////////////////
                              INITIALIZATION
@@ -57,25 +58,25 @@ contract JoinAction is TransferAction {
                              JOIN VARIANTS
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Execute a transfer from an EOA and then join via `joinParams`
+    /// @notice Execute a transfer from an EOA and then join via `PoolActionParams`
     /// @param from The address to transfer from
     /// @param permitParams A list of parameters for the permit transfers, 
-    /// must be the same length and in the same order as `joinParams` assets
-    /// @param joinParams The parameters for the join
+    /// must be the same length and in the same order as `PoolActionParams` assets
+    /// @param poolActionParams The parameters for the join
     function transferAndJoin(
         address from,
         PermitParams[] calldata permitParams,
-        JoinParams calldata joinParams
+        PoolActionParams calldata poolActionParams
     ) external {
         if (from != address(this)) {
-            if (joinParams.protocol == JoinProtocol.BALANCER) {
-                (, address[] memory assets, , uint256[] memory maxAmountsIn) = abi.decode(joinParams.args, (bytes32, address[], uint256[], uint256[]));
+            if (poolActionParams.protocol == Protocol.BALANCER) {
+                (, address[] memory assets, , uint256[] memory maxAmountsIn) = abi.decode(poolActionParams.args, (bytes32, address[], uint256[], uint256[]));
 
                 if (
                     assets.length != 
                     permitParams.length
                 ) {
-                    revert JoinAction__transferAndJoin_invalidPermitParams();
+                    revert PoolAction__transferAndJoin_invalidPermitParams();
                 }
 
                 for (uint256 i = 0; i < assets.length;) {
@@ -88,34 +89,34 @@ contract JoinAction is TransferAction {
                     }
                 }
             } else {
-                revert JoinAction__transferAndJoin_unsupportedProtocol();
+                revert PoolAction__transferAndJoin_unsupportedProtocol();
             }
         }
 
-        join(joinParams);
+        join(poolActionParams);
     }
 
     /// @notice Perform a join using the specified protocol
-    /// @param joinParams The parameters for the join
-    function join(JoinParams memory joinParams) public {
-        if(joinParams.protocol == JoinProtocol.BALANCER) {
-            balancerJoin(joinParams);
+    /// @param poolActionParams The parameters for the join
+    function join(PoolActionParams memory poolActionParams) public {
+        if(poolActionParams.protocol == Protocol.BALANCER) {
+            _balancerJoin(poolActionParams);
         } else {
-            revert JoinAction__join_unsupportedProtocol();
+            revert PoolAction__join_unsupportedProtocol();
         }
     }
 
     /// @notice Perform a join using the Balancer protocol
-    /// @param joinParams The parameters for the join
+    /// @param poolActionParams The parameters for the join
     /// @dev For more information regarding the Balancer join function check the 
     /// documentation in {IBalancerVault}
-    function balancerJoin(JoinParams memory joinParams) internal {
+    function _balancerJoin(PoolActionParams memory poolActionParams) internal {
         (
             bytes32 poolId, 
             address[] memory assets,
             uint256[] memory assetsIn,
             uint256[] memory maxAmountsIn
-        ) = abi.decode(joinParams.args, (bytes32, address[], uint256[], uint256[]));
+        ) = abi.decode(poolActionParams.args, (bytes32, address[], uint256[], uint256[]));
         
         for (uint256 i = 0; i < assets.length;) {
             if (maxAmountsIn[i] != 0) {
@@ -130,39 +131,39 @@ contract JoinAction is TransferAction {
         balancerVault.joinPool(
             poolId,
             address(this),
-            joinParams.recipient,
+            poolActionParams.recipient,
             JoinPoolRequest({
                 assets: assets,
                 maxAmountsIn: maxAmountsIn,
-                userData: abi.encode(JoinKind.EXACT_TOKENS_IN_FOR_BPT_OUT, assetsIn, joinParams.minOut),
+                userData: abi.encode(JoinKind.EXACT_TOKENS_IN_FOR_BPT_OUT, assetsIn, poolActionParams.minOut),
                 fromInternalBalance: false
             })
         );
     }
 
     /// @notice Helper function to update the join parameters for a levered position
-    /// @param joinParams The parameters for the join
+    /// @param poolActionParams The parameters for the join
     /// @param upFrontToken The upfront token for the levered position
     /// @param joinToken The token to join with
     /// @param flashLoanAmount The amount of the flash loan
     /// @param upfrontAmount The amount of the upfront token
     function updateLeverJoin(
-        JoinParams memory joinParams, 
+        PoolActionParams memory poolActionParams, 
         address joinToken,
         address upFrontToken, 
         uint256 flashLoanAmount,
         uint256 upfrontAmount,
         address poolToken
-    ) external pure returns (JoinParams memory outParams) {
-        outParams = joinParams;
+    ) external pure returns (PoolActionParams memory outParams) {
+        outParams = poolActionParams;
         
-        if (joinParams.protocol == JoinProtocol.BALANCER) {
+        if (poolActionParams.protocol == Protocol.BALANCER) {
             (
                 bytes32 poolId, 
                 address[] memory assets,
                 uint256[] memory assetsIn,
                 uint256[] memory maxAmountsIn
-            ) = abi.decode(joinParams.args, (bytes32, address[], uint256[], uint256[]));
+            ) = abi.decode(poolActionParams.args, (bytes32, address[], uint256[], uint256[]));
 
             uint256 len = assets.length;
             // the offset is needed because of the BPT token that needs to be skipped from the join
@@ -192,5 +193,45 @@ contract JoinAction is TransferAction {
             // update the join parameters
             outParams.args = abi.encode(poolId, assets, assetsIn, maxAmountsIn);
         }
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                             EXIT VARIANTS
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Exit a protocol specific pool
+    /// @param poolActionParams The parameters for the exit
+    function exit(PoolActionParams memory poolActionParams) public returns (uint256 retAmount) {
+        if(poolActionParams.protocol == Protocol.BALANCER) {
+            retAmount = _balancerExit(poolActionParams);
+        } else {
+            revert PoolAction__exit_unsupportedProtocol();
+        }
+    }
+
+    function _balancerExit(PoolActionParams memory poolActionParams) internal returns (uint256 retAmount){
+        (
+            bytes32 poolId,
+            address bpt,
+            uint256 bptAmount,
+            uint256 outIndex,
+            address[] memory assets,
+            uint256[] memory minAmountsOut
+        ) = abi.decode(poolActionParams.args, (bytes32, address, uint256, uint256, address[], uint256[]));
+
+        if (bptAmount != 0) IERC20(bpt).forceApprove(address(balancerVault), bptAmount);
+
+        balancerVault.exitPool(
+            poolId, address(this), 
+            payable(poolActionParams.recipient),
+            ExitPoolRequest({
+                assets: assets,
+                minAmountsOut: minAmountsOut,
+                userData: abi.encode(ExitKind.EXACT_BPT_IN_FOR_ONE_TOKEN_OUT, bptAmount, outIndex),
+                toInternalBalance: false
+            })
+        );
+
+        return IERC20(assets[outIndex]).balanceOf(address(poolActionParams.recipient));
     }
 }

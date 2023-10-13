@@ -12,7 +12,7 @@ import {TestBase} from "../TestBase.sol";
 import {wmul, wdiv} from "../../utils/Math.sol";
 
 import {SwapAction, SwapParams, SwapType, SwapProtocol} from "../../proxy/SwapAction.sol";
-import {JoinAction, JoinParams} from "../../proxy/JoinAction.sol";
+import {PoolAction, PoolActionParams} from "../../proxy/PoolAction.sol";
 import {CDPVault, calculateDebt, calculateNormalDebt} from "../../CDPVault.sol";
 import {CDPVault_TypeA} from "../../CDPVault_TypeA.sol";
 
@@ -44,11 +44,12 @@ contract IntegrationTestBase is TestBase {
     address constant internal LUSD_CHAINLINK_FEED = 0x3D7aE7E594f2f2091Ad8798313450130d0Aba3a0;
     address constant internal STETH_CHAINLINK_FEED = 0xCfE54B5cD566aB89272946F602D76Ea879CAb4a8;
     address constant internal ETH_CHAINLINK_FEED = 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419;
+    address constant internal BAL_CHAINLINK_FEED = 0xdF2917806E30300537aEB49A7663062F4d1F2b5F;
 
     // action contracts
     PRBProxyRegistry internal prbProxyRegistry;
     SwapAction internal swapAction;
-    JoinAction internal joinAction;
+    PoolAction internal poolAction;
 
     // curve 3Pool
     ICurvePool curve3Pool = ICurvePool(0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7);
@@ -73,7 +74,7 @@ contract IntegrationTestBase is TestBase {
     bytes32 internal stablePoolId;
 
     // Empty join params
-    JoinParams emptyJoin;
+    PoolActionParams emptyJoin;
 
     // base rates
     uint256 constant internal BASE_RATE_1_0 = 1 ether; // 0% base rate
@@ -87,7 +88,7 @@ contract IntegrationTestBase is TestBase {
 
         prbProxyRegistry = new PRBProxyRegistry();
         swapAction = new SwapAction(balancerVault, univ3Router);
-        joinAction = new JoinAction(BALANCER_VAULT);
+        poolAction = new PoolAction(BALANCER_VAULT);
 
         // configure balancer pools
         stablePool = _createBalancerStablecoinPool();
@@ -104,7 +105,7 @@ contract IntegrationTestBase is TestBase {
         vm.label(address(curve3Pool), "Curve3Pool");
         vm.label(address(stablePool), "balancerStablePool");
         vm.label(address(swapAction), "SwapAction");
-        vm.label(address(joinAction), "JoinAction");
+        vm.label(address(poolAction), "PoolAction");
 
         vm.label(address(USDC_CHAINLINK_FEED), "USDC Chainlink Feed");
         vm.label(address(USDT_CHAINLINK_FEED), "USDT Chainlink Feed");
@@ -217,7 +218,7 @@ contract IntegrationTestBase is TestBase {
 
     function _createBalancerStablecoinWeightedPool() internal returns (IComposableStablePool pool_) {
         // use the DAI price as the stablecoin price
-        uint256 wethLiquidityAmt = 5_000_000 ether;
+        uint256 wethLiquidityAmt = wdiv(uint256(5_000_000 ether),_getWETHRateInUSD());
         deal(address(WSTETH), address(this), wethLiquidityAmt);
         stablecoin.mint(address(this), 5_000_000 * 1e18);
 
@@ -334,6 +335,10 @@ contract IntegrationTestBase is TestBase {
 
     function _getWETHRateInUSD() internal view returns (uint256) {
         return wdiv(uint256(PriceFeed(ETH_CHAINLINK_FEED).latestAnswer()), 10**ERC20(ETH_CHAINLINK_FEED).decimals());
+    }
+
+    function _getBALRateInUSD() internal view returns (uint256) {
+        return wdiv(uint256(PriceFeed(BAL_CHAINLINK_FEED).latestAnswer()), 10**ERC20(BAL_CHAINLINK_FEED).decimals());
     }
 
     function _getStablecoinRateInUSD() internal returns (uint256) {
