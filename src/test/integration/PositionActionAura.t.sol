@@ -316,7 +316,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
     function test_increaseLever_balancerToken_upfront() public {
         uint256 upFrontUnderliers = 20 ether;
         uint256 borrowAmount = 70000 ether;
-        uint256 amountOutMin = 69000 ether;
+        uint256 amountOutMin = wdiv(69000 ether, _getWETHRateInUSD());
         uint256 joinOutMin = 0 ether;
 
         PoolActionParams memory poolActionParams;
@@ -399,9 +399,9 @@ contract PositionActionAuraTest is IntegrationTestBase {
     }
 
     function test_increaseLever_balancerUnderlier_upfront() public {
-        uint256 upFrontUnderliers = 10 ether;
+        uint256 upFrontUnderliers = 14 ether;
         uint256 borrowAmount = 70000 ether;
-        uint256 amountOutMin = 69000 ether;
+        uint256 amountOutMin = wdiv(69000 ether, _getWETHRateInUSD());
         uint256 joinOutMin = 0 ether;
         _joinHelper(upFrontUnderliers, borrowAmount, amountOutMin, joinOutMin);
     }
@@ -763,7 +763,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
     function test_decreaseLever() public {
         uint256 upFrontUnderliers = 14 ether;
         uint256 borrowAmount = 70000 ether;
-        uint256 amountOutMin = 0 ether;
+        uint256 amountOutMin = wdiv(69000 ether, _getWETHRateInUSD());
         uint256 joinOutMin = 0 ether;
 
         _joinHelper(upFrontUnderliers, borrowAmount, amountOutMin, joinOutMin);
