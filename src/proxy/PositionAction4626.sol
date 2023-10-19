@@ -124,7 +124,6 @@ contract PositionAction4626 is PositionAction {
         return ICDPVault(leverParams.vault).deposit(address(this), addCollateralAmount);
     }
 
-    event debug_log(string, uint256);
     /// @notice Hook to decrease lever by withdrawing collateral from the CDPVault and the ERC4626 Vault
     /// @param leverParams LeverParams struct
     /// @param subCollateral Amount of collateral to withdraw in CDPVault decimals [wad]
@@ -137,7 +136,6 @@ contract PositionAction4626 is PositionAction {
         // withdraw collateral from vault
         uint256 withdrawnCollateral = ICDPVault(leverParams.vault).withdraw(address(this), subCollateral);
 
-        emit debug_log("REDEEM",withdrawnCollateral);
         // withdraw collateral from the ERC4626 vault and return underlying assets
         tokenOut = IERC4626(leverParams.collateralToken).redeem(withdrawnCollateral, address(this), address(this));
 
