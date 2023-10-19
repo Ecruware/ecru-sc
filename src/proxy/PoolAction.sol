@@ -232,6 +232,16 @@ contract PoolAction is TransferAction {
             })
         );
 
+        for (uint256 i = 0; i <= outIndex;) {
+            if (assets[i] == bpt){
+                outIndex++;
+            }
+                
+            unchecked {
+                ++i;
+            }
+        }
+
         return IERC20(assets[outIndex]).balanceOf(address(poolActionParams.recipient));
     }
 }
