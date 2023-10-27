@@ -192,10 +192,8 @@ contract AuraVault is IERC4626, ERC4626, AccessControl {
     ) public virtual override(IERC4626, ERC4626) returns (uint256) {
         require(shares <= maxRedeem(owner), "ERC4626: redeem more than max");
 
-        uint256 assets = previewRedeem(shares);
-
         // Withdraw assets from Aura reward pool and send to "receiver"
-        IPool(rewardPool).withdraw(assets, address(this), address(this));
+        uint256 assets = IPool(rewardPool).redeem(shares, address(this), address(this));
 
         _withdraw(_msgSender(), receiver, owner, assets, shares);
 

@@ -5,7 +5,7 @@ import {SafeERC20} from "openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol"
 import {ERC20} from "openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ERC4626} from "openzeppelin/contracts/token/ERC20/extensions/ERC4626.sol";
 import {PRBProxy} from "prb-proxy/PRBProxy.sol";
-import {WAD, wmul, wdiv} from "../../utils/Math.sol";
+import {WAD, wmul, wdiv, toInt256} from "../../utils/Math.sol";
 import {CDPVault} from "../../CDPVault.sol";
 import {CDPVault_TypeA} from "../../CDPVault_TypeA.sol";
 import {IntegrationTestBase} from "./IntegrationTestBase.sol";
@@ -57,6 +57,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
     function setUp() public override {
         super.setUp();
 
+        // cdm.setParameter(address(minter), "debtCeiling", 10_000_000 ether);
         vm.label(BALANCER_VAULT, "balancer");
         vm.label(wstETH, "wstETH");
         vm.label(wstETH_WETH_BPT, "wstETH-WETH-BPT");
@@ -81,7 +82,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
         // deploy vaults
         vault = createCDPVault_TypeA(
             ERC20(auraVault), // token
-            5_000_000 ether, // debt ceiling
+            50_000_000 ether, // debt ceiling
             0, // debt floor
             1.25 ether, // liquidation ratio
             1.0 ether, // liquidation penalty
@@ -768,11 +769,12 @@ contract PositionActionAuraTest is IntegrationTestBase {
 
         _joinHelper(upFrontUnderliers, borrowAmount, amountOutMin, joinOutMin);
 
-        (uint256 initialCollateral, uint256 initialNormalDebt) = vault.positions(address(userProxy));
+        vm.warp(block.timestamp + 360 days);
 
+        (uint256 initialCollateral, uint256 initialNormalDebt) = vault.positions(address(userProxy));
         uint256 amountOut = initialNormalDebt;
         uint256 maxAmountIn = initialCollateral;
-        uint256 subCollateral = auraVault.previewWithdraw(maxAmountIn);
+        uint256 subCollateral = maxAmountIn;
 
         address[] memory assets = new address[](2);
         assets[0] = address(stablecoin);
@@ -787,7 +789,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
 
             uint256[] memory minAmountsOut = new uint256[](3);
             uint256 outIndex = 0;
-            uint256 bptAmount = subCollateral;
+            uint256 bptAmount = auraVault.previewWithdraw(maxAmountIn);
 
             poolActionParams = PoolActionParams({
                 protocol: Protocol.BALANCER,
@@ -813,7 +815,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
                 swapType: SwapType.EXACT_OUT,
                 assetIn: address(wstETH),
                 amount: amountOut, // exact amount of stablecoin to receive
-                limit: maxAmountIn,
+                limit: amountOut,
                 recipient: address(positionAction),
                 deadline: block.timestamp + 100,
                 args: abi.encode(weightedPoolIdArray, assets)

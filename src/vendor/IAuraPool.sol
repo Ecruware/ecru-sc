@@ -7,6 +7,7 @@ interface IPool{
     function deposit(uint256, address) external returns (uint256);
     function withdraw(uint256, bool) external;
     function withdraw(uint256, address, address) external;
+    function redeem(uint256 shares, address receiver, address owner) external returns (uint256);
     function getReward() external returns (bool);
     function extraRewardsLength() external view returns (uint256);
     function rewardToken() external view returns(address);

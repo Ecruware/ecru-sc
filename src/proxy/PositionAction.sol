@@ -10,9 +10,9 @@ import {IMinter} from "../interfaces/IMinter.sol";
 import {IStablecoin} from "../interfaces/IStablecoin.sol";
 import {ICDPVault} from "../interfaces/ICDPVault.sol";
 
-import {toInt256, wmul} from "../utils/Math.sol";
+import {toInt256, wmul, min} from "../utils/Math.sol";
 
-import {calculateNormalDebt} from "../CDPVault.sol";
+import {calculateNormalDebt, calculateDebt} from "../CDPVault.sol";
 import {TransferAction, PermitParams} from "./TransferAction.sol";
 import {BaseAction} from "./BaseAction.sol";
 import {SwapAction, SwapParams, SwapType} from "./SwapAction.sol";
@@ -404,9 +404,14 @@ abstract contract PositionAction is IERC3156FlashBorrower, ICreditFlashBorrower,
 
         // take out credit flash loan
         IPermission(leverParams.vault).modifyPermission(leverParams.position, self, true);
+        uint stableCoinAmount = _normalDebtToDebt(
+            leverParams.vault,
+            leverParams.position,
+            leverParams.primarySwap.amount
+        );
         flashlender.creditFlashLoan(
             ICreditFlashBorrower(self),
-            leverParams.primarySwap.amount,
+            stableCoinAmount,
             abi.encode(leverParams, subCollateral, residualRecipient)
         );
         IPermission(leverParams.vault).modifyPermission(leverParams.position, self, false);
@@ -476,7 +481,7 @@ abstract contract PositionAction is IERC3156FlashBorrower, ICreditFlashBorrower,
     /// @param data The encoded bytes that were passed into the credit flash loan
     function onCreditFlashLoan(
         address /*initiator*/,
-        uint256 /*amount*/,
+        uint256 amount,
         uint256 /*fee*/,
         bytes calldata data
     ) external returns (bytes32) {
@@ -487,13 +492,6 @@ abstract contract PositionAction is IERC3156FlashBorrower, ICreditFlashBorrower,
             address residualRecipient
         ) = abi.decode(data,(LeverParams, uint256, address));
 
-        // derive the amount of normal debt from the amount of Stablecoin received from the swap
-        uint256 subNormalDebt = _debtToNormalDebt(
-            leverParams.vault,
-            leverParams.position,
-            leverParams.primarySwap.amount
-        );
-
         // sub collateral and debt
         cdm.modifyPermission(leverParams.vault, true);
         ICDPVault(leverParams.vault).modifyCollateralAndDebt(
@@ -501,10 +499,11 @@ abstract contract PositionAction is IERC3156FlashBorrower, ICreditFlashBorrower,
             address(this),
             address(this),
             -toInt256(subCollateral),
-            -toInt256(subNormalDebt)
+            -toInt256(leverParams.primarySwap.amount)
         );
         cdm.modifyPermission(leverParams.vault, false);
 
+        leverParams.primarySwap.amount = amount;
         // withdraw collateral and handle any CDP specific actions
         uint256 withdrawnCollateral = _onDecreaseLever(leverParams, subCollateral);
 
@@ -709,5 +708,14 @@ abstract contract PositionAction is IERC3156FlashBorrower, ICreditFlashBorrower,
     ) internal view returns (uint256 normalDebt) {
         (uint64 rateAccumulator, uint256 accruedRebate,) = ICDPVault(vault).virtualIRS(position);
         normalDebt = calculateNormalDebt(debt, rateAccumulator, accruedRebate);
+    }
+
+    function _normalDebtToDebt(
+        address vault,
+        address position,
+        uint256 normalDebt
+    ) internal view returns (uint256 debt) {
+        (uint64 rateAccumulator, uint256 accruedRebate,) = ICDPVault(vault).virtualIRS(position);
+        debt = calculateDebt(normalDebt, rateAccumulator, accruedRebate);
     }
 }
