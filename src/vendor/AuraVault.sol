@@ -192,7 +192,7 @@ contract AuraVault is IERC4626, ERC4626, AccessControl {
     ) public virtual override(IERC4626, ERC4626) returns (uint256) {
         require(shares <= maxRedeem(owner), "ERC4626: redeem more than max");
 
-        // Withdraw assets from Aura reward pool and send to "receiver"
+        // Redeem assets from Aura reward pool and send to "receiver"
         uint256 assets = IPool(rewardPool).redeem(shares, address(this), address(this));
 
         _withdraw(_msgSender(), receiver, owner, assets, shares);
@@ -257,7 +257,7 @@ contract AuraVault is IERC4626, ERC4626, AccessControl {
 
     /**
      * @dev Calculates the amount of AURA to mint based on the BAL supply schedule
-     * Should not be used after INFLATION_PROTECTION_TIME since minterMinted is unkown
+     * Should not be used after INFLATION_PROTECTION_TIME since minterMinted is unknown
      * See https://etherscan.io/token/0xc0c293ce456ff0ed870add98a0828dd4d2903dbf#code
      */
     function _previewMining(uint256 _amount) private view returns (uint256 amount) {

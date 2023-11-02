@@ -7,10 +7,7 @@ import {AccessControlUpgradeable} from "openzeppelin/contracts-upgradeable/acces
 import {AggregatorV3Interface} from "../vendor/AggregatorV3Interface.sol";
 
 import {wdiv} from "../utils/Math.sol";
-import {IOracle} from "../interfaces/IOracle.sol";
-
-// Authenticated Roles
-bytes32 constant MANAGER_ROLE = keccak256("MANAGER_ROLE");
+import {IOracle, MANAGER_ROLE} from "../interfaces/IOracle.sol";
 
 /// @title ChainlinkOracle
 /// @notice Lightweight oracle that uses Chainlink as a data source

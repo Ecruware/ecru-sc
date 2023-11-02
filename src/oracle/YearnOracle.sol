@@ -5,14 +5,12 @@ import {IERC20Metadata} from "openzeppelin/contracts/interfaces/IERC20Metadata.s
 import {UUPSUpgradeable} from "openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {AccessControlUpgradeable} from "openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 
-import {IOracle} from "../interfaces/IOracle.sol";
+import {IOracle, MANAGER_ROLE} from "../interfaces/IOracle.sol";
 
 import {IYVault} from "../vendor/IYVault.sol";
 import {IYearnLensOracle} from "../vendor/IYearnLensOracle.sol";
 import {WAD} from "../utils/Math.sol";
 
-// Authenticated Roles
-bytes32 constant MANAGER_ROLE = keccak256("MANAGER_ROLE");
 
 /// @title YearnOracle
 /// @notice Oracle for yearn vaults

@@ -761,7 +761,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
         assertEq(ERC20(wstETH_WETH_BPT).balanceOf(user), initialDeposit);
     }
 
-    function test_decreaseLever() public {
+    function test_decreaseLever_asd() public {
         uint256 upFrontUnderliers = 14 ether;
         uint256 borrowAmount = 70000 ether;
         uint256 amountOutMin = wdiv(69000 ether, _getWETHRateInUSD());
