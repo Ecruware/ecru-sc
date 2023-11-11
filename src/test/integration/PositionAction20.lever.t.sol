@@ -7,7 +7,7 @@ import {ERC20} from "openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {PRBProxy} from "prb-proxy/PRBProxy.sol";
 
 import {IntegrationTestBase} from "./IntegrationTestBase.sol";
-import {wdiv, WAD} from "../../utils/Math.sol";
+import {wdiv, WAD, wmul} from "../../utils/Math.sol";
 import {Permission} from "../../utils/Permission.sol";
 
 import {CDPVault} from "../../CDPVault.sol";
@@ -735,7 +735,15 @@ contract PositionAction20_Lever_Test is IntegrationTestBase {
             auxAction: emptyJoin
         });
 
+        // Compute the amount of DAI that will be swapped
+        (
+            uint64 rateAccumulator, 
+            uint256 accruedRebate, 
+        ) = daiVault.virtualIRS(address(userProxy));
+        uint256 accruedInterest = wmul(amountOut, (rateAccumulator - WAD)) - accruedRebate;
+        leverParams.primarySwap.amount = amountOut + accruedInterest;
         uint256 expectedAmountIn = _simulateBalancerSwap(leverParams.primarySwap);
+        leverParams.primarySwap.amount = amountOut;
 
         // call decreaseLever
         vm.prank(user);
@@ -755,9 +763,9 @@ contract PositionAction20_Lever_Test is IntegrationTestBase {
         assertEq(collateral, initialCollateral - maxAmountIn);
 
         // assert new normalDebt is the same as initialNormalDebt minus the amount of stablecoin we received from swapping DAI
-        assertEq(normalDebt, initialNormalDebt - _debtToNormalDebt(address(daiVault), address(userProxy), amountOut));
+        assertEq(normalDebt, initialNormalDebt - amountOut);
 
-        // assert that the left over was transfered to the user proxy
+        // assert the leftover DAI is sent back to the user
         assertEq(maxAmountIn - expectedAmountIn, DAI.balanceOf(address(userProxy)));
 
         // ensure there isn't any left over debt or collateral from using leverAction
