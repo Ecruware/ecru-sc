@@ -5,10 +5,12 @@ import {ERC20} from "openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "openzeppelin/contracts/interfaces/IERC20.sol";
 import {ERC4626} from "openzeppelin/contracts/token/ERC20/extensions/ERC4626.sol";
 import {IERC4626} from "openzeppelin/contracts/interfaces/IERC4626.sol";
+import {AggregatorV3Interface} from "../vendor/AggregatorV3Interface.sol";
 import {ERC20Permit} from "openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
 import {SafeERC20} from "openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {AccessControl} from "openzeppelin/contracts/access/AccessControl.sol";
 import {Math} from "openzeppelin/contracts/utils/math/Math.sol";
+import {wdiv} from "../utils/Math.sol";
 import {IPool} from "./IAuraPool.sol";
 import {IOracle} from "../interfaces/IOracle.sol";
 
@@ -20,6 +22,9 @@ bytes32 constant VAULT_ADMIN_ROLE = keccak256("VAULT_ADMIN_ROLE");
 contract AuraVault is IERC4626, ERC4626, AccessControl {
     using SafeERC20 for IERC20;
     using Math for uint256;
+
+    error AuraVault__chainlinkSpot_invalidPrice(address token, uint256 timestamp, uint256 updatedAt, uint256 stalePeriod, uint256 price);
+    error AuraVault__fetchAggregator_invalidToken();
 
     /* ========== Constants ========== */
 
@@ -34,6 +39,9 @@ contract AuraVault is IERC4626, ERC4626, AccessControl {
 
     /// @notice The feed providing USD prices for asset, rewardToken and secondaryRewardToken
     address public immutable feed;
+
+    /// @notice The time after which the price is considered stale
+    uint256 public immutable stalePeriod;
 
     /// @notice The incentive rates denomination
     uint256 private constant INCENTIVE_BASIS = 10000;
@@ -84,6 +92,7 @@ contract AuraVault is IERC4626, ERC4626, AccessControl {
         address feed_,
         uint32 maxClaimerIncentive_,
         uint32 maxLockerIncentive_,
+        uint256 stalePeriod_,
         string memory tokenName_,
         string memory tokenSymbol_
     ) ERC4626(IERC20(asset_)) ERC20(tokenName_, tokenSymbol_) {
@@ -95,6 +104,7 @@ contract AuraVault is IERC4626, ERC4626, AccessControl {
         feed = feed_;
         maxClaimerIncentive = maxClaimerIncentive_;
         maxLockerIncentive = maxLockerIncentive_;
+        stalePeriod = stalePeriod_;
     }
 
     /* ========== 4626 Vault ========== */
@@ -231,7 +241,7 @@ contract AuraVault is IERC4626, ERC4626, AccessControl {
         if(block.timestamp <= INFLATION_PROTECTION_TIME) {
             IERC20(AURA).safeTransfer(_config.lockerRewards, amounts[1] * _config.lockerIncentive / INCENTIVE_BASIS);
             IERC20(AURA).safeTransfer(msg.sender, amounts[1]);
-        } else { // after INFLATION_PROTECITON_TIME
+        } else { // after INFLATION_PROTECTION_TIME
             IERC20(AURA).safeTransfer(_config.lockerRewards, IERC20(AURA).balanceOf(address(this)));
         }
 
@@ -250,8 +260,8 @@ contract AuraVault is IERC4626, ERC4626, AccessControl {
     }
 
     function _previewReward(uint256 balReward, uint256 auraReward, VaultConfig memory config) private view returns (uint256 amount) {
-        amount = balReward * IOracle(feed).spot(BAL) / IOracle(feed).spot(asset());
-        amount = amount + auraReward * IOracle(feed).spot(AURA) / IOracle(feed).spot(asset());
+        amount = balReward * _chainlinkSpot(BAL) / IOracle(feed).spot(asset());
+        amount = amount + auraReward * _chainlinkSpot(AURA) / IOracle(feed).spot(asset());
         amount = amount * (INCENTIVE_BASIS - config.claimerIncentive) / INCENTIVE_BASIS;
     }
 
@@ -285,6 +295,33 @@ contract AuraVault is IERC4626, ERC4626, AccessControl {
         }
     }
 
+    function _chainlinkSpot(address token) private view returns (uint256 price) {
+        (address aggregator, uint256 scale) = _fetchAggregator(token);
+        bool isValid = false;
+        try AggregatorV3Interface(aggregator).latestRoundData() returns (
+            uint80 /*roundId*/, int256 answer, uint256 /*startedAt*/, uint256 updatedAt, uint80 /*answeredInRound*/
+        ) {
+            price = wdiv(uint256(answer), scale);
+            price = block.timestamp - updatedAt;
+            isValid = (price > 0 && block.timestamp - updatedAt <= stalePeriod);
+        } catch { }
+
+        if (!isValid)
+            revert AuraVault__chainlinkSpot_invalidPrice(token, block.timestamp, 0, stalePeriod, price);
+    }
+
+    function _fetchAggregator(address token) private pure returns (address aggregator, uint256 decimals) {
+        if (token == BAL) {
+            aggregator = 0xdF2917806E30300537aEB49A7663062F4d1F2b5F;
+            decimals = 1e8;
+        } else if (token == AURA) {
+            //  todo: fix with AURA token feed address
+            aggregator = 0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6;
+            decimals = 1e8;
+        } else 
+            revert AuraVault__fetchAggregator_invalidToken();
+    }
+
     /* ========== Admin ========== */
 
     function setVaultConfig(uint32 _claimerIncentive, uint32 _lockerIncentive, address _lockerRewards) public onlyRole(VAULT_ADMIN_ROLE)  returns (bool) {
@@ -300,5 +337,4 @@ contract AuraVault is IERC4626, ERC4626, AccessControl {
 
         return true;
     }
-
 }

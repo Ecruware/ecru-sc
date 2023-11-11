@@ -72,6 +72,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
             feed_: address(oracle),
             maxClaimerIncentive_: 100,
             maxLockerIncentive_: 100,
+            stalePeriod_: 400 days, // disable the stable check for interest rate testing
             tokenName_:  "Aura Vault",
             tokenSymbol_: "auraVault"
         });

@@ -81,8 +81,12 @@ contract IntegrationTestBase is TestBase {
     uint256 constant internal BASE_RATE_1_005 = 1000000000157721789; // 0.5% base rate
     uint256 constant internal BASE_RATE_1_025 = 1000000000780858271; // 2.5% base rate
 
-    function setUp() public virtual override { 
-        vm.createSelectFork(vm.rpcUrl("mainnet"), getForkBlockNumber());
+    function setUp() public virtual override {
+        uint256 forkBlock = getForkBlockNumber();
+        if (forkBlock != 0)
+            vm.createSelectFork(vm.rpcUrl("mainnet"), forkBlock);
+        else
+            vm.createSelectFork(vm.rpcUrl("mainnet"));
         
         super.setUp();
 

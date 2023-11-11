@@ -34,6 +34,7 @@ contract AuraVaultTest is IntegrationTestBase {
             feed_: address(oracle),
             maxClaimerIncentive_: 100,
             maxLockerIncentive_: 100,
+            stalePeriod_: 1 days,
             tokenName_:  "Aura Vault",
             tokenSymbol_: "auraVault"
         });
@@ -132,6 +133,6 @@ contract AuraVaultTest is IntegrationTestBase {
     }
 
     function getForkBlockNumber() internal virtual override(IntegrationTestBase) pure returns (uint256){
-        return 18163902; //Sep-18-2023 04:06:35 PM +UTC
+        return 0; //Sep-18-2023 04:06:35 PM +UTC    
     }
 }

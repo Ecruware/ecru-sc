@@ -26,17 +26,21 @@ contract BalancerOracle is IOracle, AccessControlUpgradeable, UUPSUpgradeable {
     /// @notice Update period in seconds
     uint256 public immutable updateWaitWindow;
 
+    /// @notice Stale period in seconds
     uint256 public immutable stalePeriod;
 
+    /// @notice Balancer Pool address
     address public immutable pool;
 
+    /// @notice Balancer Pool ID
     bytes32 public immutable poolId;
 
-    address public immutable token0;
+    /// @notice Balancer Pool tokens
+    address internal immutable token0;
 
-    address public immutable token1;
+    address internal immutable token1;
     
-    address public immutable token2;
+    address internal immutable token2;
 
     // todo: can be packed in a single struct
     uint256 public safePrice;
@@ -115,6 +119,7 @@ contract BalancerOracle is IOracle, AccessControlUpgradeable, UUPSUpgradeable {
         if(block.timestamp - lastUpdate < updateWaitWindow) revert BalancerOracle__update_InUpdateWaitWindow();
         // update the safe price first
         safePrice = safePrice_ = currentPrice;
+        lastUpdate = block.timestamp;
 
         uint256[] memory weights = IWeightedPool(pool).getNormalizedWeights();
         uint256 totalSupply = IWeightedPool(pool).totalSupply();
@@ -126,7 +131,7 @@ contract BalancerOracle is IOracle, AccessControlUpgradeable, UUPSUpgradeable {
             // reverts if the price is invalid or stale
             prices[i] = _getTokenPrice(i);
             uint256 val = wdiv(prices[i], weights[i]);
-            uint256 indivPi = wpow(val, weights[i], WAD);
+            uint256 indivPi = uint256(wpow(int256(val), int256(weights[i])));
 
             totalPi = wmul(totalPi, indivPi);
         }
