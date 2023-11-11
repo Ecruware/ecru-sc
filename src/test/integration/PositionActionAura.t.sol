@@ -57,7 +57,7 @@ contract PositionActionAuraTest is IntegrationTestBase {
     function setUp() public override {
         super.setUp();
 
-        // cdm.setParameter(address(minter), "debtCeiling", 10_000_000 ether);
+        cdm.setParameter(address(minter), "debtCeiling", 10_000_000 ether);
         vm.label(BALANCER_VAULT, "balancer");
         vm.label(wstETH, "wstETH");
         vm.label(wstETH_WETH_BPT, "wstETH-WETH-BPT");
