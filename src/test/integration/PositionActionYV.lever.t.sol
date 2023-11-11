@@ -16,7 +16,7 @@ import {PermitParams} from "../../proxy/TransferAction.sol";
 import {CDPVault} from "../../CDPVault.sol";
 import {CDPVault_TypeA} from "../../CDPVault_TypeA.sol";
 
-import {WAD} from "../../utils/Math.sol";
+import {WAD, wmul} from "../../utils/Math.sol";
 import {IYVault} from "../../vendor/IYVault.sol";
 
 
@@ -328,7 +328,7 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
         // assert new normalDebt is the same as initialNormalDebt minus the amount of stablecoin we received from swapping DAI
         assertEq(normalDebt, initialNormalDebt - amountOut);
 
-        // assert that the left over was transfered to the user proxy
+        // assert that the left over was transferred to the user proxy
         assertEq(DAI.balanceOf(address(userProxy)), expectedWithdrawAmount - expectedAmountIn);
 
         // ensure there isn't any left over debt or collateral from using positionAction
@@ -383,7 +383,18 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
             auxAction: emptyJoin
         });
 
-        uint256 expectedAmountIn = _simulateBalancerSwap(leverParams.primarySwap);
+        // Compute the amount of DAI that will be swapped
+        uint256 expectedAmountIn;
+        {
+        (
+            uint64 rateAccumulator, 
+            uint256 accruedRebate, 
+        ) = yvDaiVault.virtualIRS(address(userProxy));
+        uint256 accruedInterest = wmul(amountOut, (rateAccumulator - WAD)) - accruedRebate;
+        leverParams.primarySwap.amount = amountOut + accruedInterest;
+        expectedAmountIn = _simulateBalancerSwap(leverParams.primarySwap);
+        leverParams.primarySwap.amount = amountOut;
+        }
         uint256 expectedWithdrawAmount = _simulateYearnVaultWithdraw(yvDAI, subCollateral);
 
         // call decreaseLever
@@ -404,9 +415,9 @@ contract PositionActionYV_Lever_Test is IntegrationTestBase {
         assertEq(collateral, initialCollateral - subCollateral);
 
         // assert new normalDebt is the same as initialNormalDebt minus the amount of stablecoin we received from swapping DAI
-        assertEq(normalDebt, initialNormalDebt - _debtToNormalDebt(address(yvDaiVault), address(userProxy), amountOut));
+        assertEq(normalDebt, initialNormalDebt - amountOut);
 
-        // assert that the left over was transfered to the user proxy
+        // assert that the left over was transferred to the user proxy
         assertEq(DAI.balanceOf(address(userProxy)), expectedWithdrawAmount - expectedAmountIn);
 
         // ensure there isn't any left over debt or collateral from using positionAction
