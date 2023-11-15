@@ -23,7 +23,7 @@ contract AuraVault is IERC4626, ERC4626, AccessControl {
     using SafeERC20 for IERC20;
     using Math for uint256;
 
-    error AuraVault__chainlinkSpot_invalidPrice(address token, uint256 timestamp, uint256 updatedAt, uint256 stalePeriod, uint256 price);
+    error AuraVault__chainlinkSpot_invalidPrice(address token);
     error AuraVault__fetchAggregator_invalidToken();
 
     /* ========== Constants ========== */
@@ -302,12 +302,11 @@ contract AuraVault is IERC4626, ERC4626, AccessControl {
             uint80 /*roundId*/, int256 answer, uint256 /*startedAt*/, uint256 updatedAt, uint80 /*answeredInRound*/
         ) {
             price = wdiv(uint256(answer), scale);
-            price = block.timestamp - updatedAt;
             isValid = (price > 0 && block.timestamp - updatedAt <= stalePeriod);
         } catch { }
 
         if (!isValid)
-            revert AuraVault__chainlinkSpot_invalidPrice(token, block.timestamp, 0, stalePeriod, price);
+            revert AuraVault__chainlinkSpot_invalidPrice(token);
     }
 
     function _fetchAggregator(address token) private pure returns (address aggregator, uint256 decimals) {

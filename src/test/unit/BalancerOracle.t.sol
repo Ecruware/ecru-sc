@@ -195,6 +195,100 @@ contract BalancerOracleTest is TestBase {
         vm.stopPrank();
     }
 
+    function test_getStatus_returnTrueOnValidSafePrice() public {
+        _mockUpdateCalls();
+        vm.startPrank(keeper);
+        balancerOracle.update();
+        vm.warp(block.timestamp + updateWaitWindow);
+        vm.startPrank(keeper);
+        // Second update will trigger a safePrice update
+        balancerOracle.update();
+
+        assertTrue(balancerOracle.getStatus(address(0)));
+    }
+
+    function test_getStatus_returnsFalseOnZeroSafePrice() public {
+        assertFalse(balancerOracle.getStatus(address(0)));
+        _mockUpdateCalls();
+        vm.startPrank(keeper);
+        balancerOracle.update();
+        // Status check fail if the safe price is not updated
+        assertFalse(balancerOracle.getStatus(address(0)));
+    }
+    
+    function test_getStatus_returnFalseOnStaleSafePrice() public {
+        _mockUpdateCalls();
+        vm.startPrank(keeper);
+        balancerOracle.update();
+        vm.warp(block.timestamp + updateWaitWindow);
+        vm.startPrank(keeper);
+        // Second update will trigger a safePrice update
+        balancerOracle.update();
+
+        assertTrue(balancerOracle.getStatus(address(0)));
+
+        vm.warp(block.timestamp + stalePeriod + 1);
+
+        assertFalse(balancerOracle.getStatus(address(0)));
+    }
+
+    function test_spot_returnsSafePrice() public {
+        _mockUpdateCalls();
+        vm.startPrank(keeper);
+        balancerOracle.update();
+        vm.warp(block.timestamp + updateWaitWindow);
+        vm.startPrank(keeper);
+        // Second update will trigger a safePrice update
+        balancerOracle.update();
+
+        assertEq(balancerOracle.spot(address(0)), balancerOracle.safePrice());
+    }
+
+    function test_spot_revertsOnInvalidSafePrice() public {
+        vm.expectRevert(
+            abi.encodeWithSelector(BalancerOracle.BalancerOracle__spot_invalidPrice.selector)
+        );
+        balancerOracle.spot(address(0));
+    }
+
+    function test_spot_revertsOnStaleSafePrice() public {
+        _mockUpdateCalls();
+        vm.startPrank(keeper);
+        balancerOracle.update();
+        vm.warp(block.timestamp + updateWaitWindow);
+        vm.startPrank(keeper);
+        // Second update will trigger a safePrice update
+        balancerOracle.update();
+        assertEq(balancerOracle.spot(address(0)), balancerOracle.safePrice());
+
+        vm.warp(block.timestamp + stalePeriod + 1);
+
+        // Price is stale now, spot() should revert
+        vm.expectRevert(
+            abi.encodeWithSelector(BalancerOracle.BalancerOracle__spot_invalidPrice.selector)
+        );
+        balancerOracle.spot(address(0));
+    }
+
+    function test_getTokenPrice_revertsOnInvalidTokenIndex() public {
+        _mockUpdateCalls();
+
+        // update the mock weights call to return an unsupported amount
+        uint256[] memory weights = new uint256[](4);
+        weights[0] = weights[1] = weights[2] = weights[3] =  1 ether / 2;
+        vm.mockCall(
+            pool, 
+            abi.encodeWithSelector(IWeightedPool.getNormalizedWeights.selector),
+            abi.encode(weights)
+        );
+
+        vm.startPrank(keeper);
+        vm.expectRevert(
+            abi.encodeWithSelector(BalancerOracle.BalancerOracle__getTokenPrice_invalidIndex.selector)
+        );
+        balancerOracle.update();
+    }
+
     function _mockUpdateCalls() internal {
         uint256[] memory weights = new uint256[](2);
         weights[0] = weights[1] = 1 ether / 2;
@@ -230,6 +324,13 @@ contract BalancerOracleTest is TestBase {
             chainlinkOracle, 
             abi.encodeWithSelector(IOracle.spot.selector, token1),
             abi.encode(token1Price)
+        );
+
+        uint256 token2Price = 1 ether;
+        vm.mockCall(
+            chainlinkOracle, 
+            abi.encodeWithSelector(IOracle.spot.selector, token2),
+            abi.encode(token2Price)
         );
     }
 }
